@@ -1,0 +1,87 @@
+[
+  {
+    "_comment": "MOCK — Simula payload real de Google Chat webhook (Message event).",
+    "_docs": "https://developers.google.com/chat/api/reference/rest/v1/spaces.messages",
+    "type": "MESSAGE",
+    "eventTime": "2026-09-08T08:14:00.000Z",
+    "message": {
+      "name": "spaces/AAAA1111/messages/msg-001",
+      "sender": {
+        "name": "users/analyst-001",
+        "displayName": "María López",
+        "type": "HUMAN"
+      },
+      "createTime": "2026-09-08T08:14:00.000Z",
+      "text": "Las transacciones del batch nocturno no se procesaron. Llevo 2 horas esperando y nada. Esto afecta el cierre contable.",
+      "space": {
+        "name": "spaces/AAAA1111",
+        "type": "ROOM",
+        "displayName": "Soporte Finanzas"
+      },
+      "_source_type": "human_report"
+    }
+  },
+  {
+    "_comment": "MOCK — Alerta automática de un bot de monitoreo (sender.type=BOT).",
+    "type": "MESSAGE",
+    "eventTime": "2026-09-08T03:14:00.000Z",
+    "message": {
+      "name": "spaces/AAAA1111/messages/msg-002",
+      "sender": {
+        "name": "users/monitoring-bot-001",
+        "displayName": "Monitoring Bot",
+        "type": "BOT"
+      },
+      "createTime": "2026-09-08T03:14:00.000Z",
+      "text": "❌ Falló el pipeline de ingesta de transacciones — 03:14 AM",
+      "space": {
+        "name": "spaces/AAAA1111",
+        "type": "ROOM",
+        "displayName": "Soporte Finanzas"
+      },
+      "_source_type": "machine_alert"
+    }
+  },
+  {
+    "_comment": "MOCK — Reporte humano sobre fraude, severidad alta.",
+    "type": "MESSAGE",
+    "eventTime": "2026-09-08T09:30:00.000Z",
+    "message": {
+      "name": "spaces/BBBB2222/messages/msg-003",
+      "sender": {
+        "name": "users/analyst-002",
+        "displayName": "Carlos Ramos",
+        "type": "HUMAN"
+      },
+      "createTime": "2026-09-08T09:30:00.000Z",
+      "text": "El sistema de detección de fraude está caído. Hay transacciones que deberían estar bloqueadas pasando sin revisión. Producción afectada.",
+      "space": {
+        "name": "spaces/BBBB2222",
+        "type": "ROOM",
+        "displayName": "Soporte Riesgo"
+      },
+      "_source_type": "human_report"
+    }
+  },
+  {
+    "_comment": "MOCK — Alerta de bot sobre fallo en pipeline de pagos.",
+    "type": "MESSAGE",
+    "eventTime": "2026-09-08T10:05:00.000Z",
+    "message": {
+      "name": "spaces/BBBB2222/messages/msg-004",
+      "sender": {
+        "name": "users/monitoring-bot-001",
+        "displayName": "Monitoring Bot",
+        "type": "BOT"
+      },
+      "createTime": "2026-09-08T10:05:00.000Z",
+      "text": "⚠️ Pipeline de pagos con latencia elevada — p99 > 5000ms — 10:05 AM",
+      "space": {
+        "name": "spaces/BBBB2222",
+        "type": "ROOM",
+        "displayName": "Soporte Riesgo"
+      },
+      "_source_type": "machine_alert"
+    }
+  }
+]
