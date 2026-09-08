@@ -24,10 +24,12 @@ ReDoc en:                  http://localhost:8000/redoc
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from api.dependencies import (
@@ -58,6 +60,17 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# Montar frontend estático Bitrix-style
+FRONT_DIR = Path(__file__).resolve().parent.parent / "front"
+if FRONT_DIR.exists():
+    app.mount("/front", StaticFiles(directory=str(FRONT_DIR)), name="front")
+
+    @app.get("/", include_in_schema=False)
+    def serve_frontend() -> FileResponse:
+        """Sirve la interfaz web del Helpdesk / Dashboard en la raíz."""
+        return FileResponse(FRONT_DIR / "index.html")
+
+
 
 # ---------------------------------------------------------------------------
 # Schemas de request/response (Pydantic — solo en la capa API)
@@ -77,6 +90,7 @@ class WebhookResponse(BaseModel):
     runbook_used: str | None
     ack_message: str
     classified_by: str
+    text: str | None = None  # Compatible con Google Chat App interactive response
 
 
 class SLAJobResponse(BaseModel):
@@ -198,6 +212,7 @@ async def receive_google_chat_event(
         runbook_used=runbook_name,
         ack_message=ack_text,
         classified_by=classification.classified_by,
+        text=ack_text,
     )
 
 
@@ -274,9 +289,13 @@ def list_tickets(
             "level": t.level.value,
             "escalated": t.escalated,
             "resolved_by_auto": t.resolved_by_auto,
+            "resolved_by": t.resolved_by,
+            "space_id": t.space_id,
+            "source_event_id": t.source_event_id,
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "sla_deadline": t.sla_deadline.isoformat() if t.sla_deadline else None,
-            "summary": t.summary[:100],
+            "summary": t.summary,
         }
         for t in tickets
     ]
+

@@ -1,0 +1,628 @@
+/**
+ * front/app.js
+ * ============
+ * Controlador reactivo para FintechDesk (Frontend Bitrix-Style).
+ * Conecta con la API de FastAPI:
+ *   - GET  /dashboard
+ *   - GET  /tickets
+ *   - POST /webhook/google-chat
+ *   - POST /sla/run
+ */
+
+// Estado global de la aplicación
+const state = {
+  tickets: [],
+  metrics: null,
+  activeFilter: 'all',
+  activeSource: 'all',
+  searchTerm: '',
+  autoRefresh: true,
+  timerId: null,
+};
+
+// ---------------------------------------------------------------------------
+// Inicialización
+// ---------------------------------------------------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+  setupNavigation();
+  setupFilters();
+  setupSimulator();
+  setupModal();
+  setupGlobalActions();
+
+  // Carga inicial
+  fetchAllData();
+
+  // Polling automático cada 5 segundos
+  state.timerId = setInterval(() => {
+    if (state.autoRefresh) {
+      fetchAllData(true);
+    }
+  }, 5000);
+});
+
+// ---------------------------------------------------------------------------
+// Navegación de Pestañas (Estilo Bitrix24)
+// ---------------------------------------------------------------------------
+function setupNavigation() {
+  const navButtons = document.querySelectorAll('.nav-item');
+  const panes = document.querySelectorAll('.tab-pane');
+  const viewTitle = document.getElementById('view-title');
+  const viewBreadcrumb = document.getElementById('view-breadcrumb');
+
+  const titles = {
+    'tab-dashboard': {
+      title: 'Tablero General',
+      desc: 'Monitoreo de incidencias y métricas en tiempo real',
+      target: 'tab-tickets', // En modo dashboard muestra tickets y KPIs
+    },
+    'tab-tickets': {
+      title: 'Casos & Mesa de Ayuda',
+      desc: 'Listado completo de tickets asignados a Nivel 1 y Nivel 2',
+      target: 'tab-tickets',
+    },
+    'tab-simulator': {
+      title: 'Simulador Interactivo de Chat',
+      desc: 'Prueba el comportamiento de la IA y los runbooks con eventos de Google Chat',
+      target: 'tab-simulator',
+    },
+    'tab-runbooks': {
+      title: 'Catálogo de Runbooks & Automatización',
+      desc: 'Solución autónoma de incidencias recurrentes de infraestructura',
+      target: 'tab-runbooks',
+    },
+    'tab-metrics': {
+      title: 'Métricas de Soporte & SLAs',
+      desc: 'Volumen por componente bancario e historial de cumplimiento',
+      target: 'tab-metrics',
+    },
+  };
+
+  navButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabId = btn.getAttribute('data-tab');
+      navButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const config = titles[tabId] || { title: 'Mesa de Ayuda', desc: '', target: tabId };
+      viewTitle.textContent = config.title;
+      viewBreadcrumb.textContent = config.desc;
+
+      panes.forEach(pane => {
+        pane.classList.toggle('active', pane.id === config.target);
+      });
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Filtros y Búsqueda
+// ---------------------------------------------------------------------------
+function setupFilters() {
+  // Filtro por Estado
+  const statusChips = document.querySelectorAll('#status-filters .chip');
+  statusChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      statusChips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      state.activeFilter = chip.getAttribute('data-filter');
+      renderTicketsTable();
+    });
+  });
+
+  // Filtro por Origen (Humano / Máquina)
+  const sourceChips = document.querySelectorAll('#source-filters .chip');
+  sourceChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      sourceChips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      state.activeSource = chip.getAttribute('data-source');
+      renderTicketsTable();
+    });
+  });
+
+  // Buscador de tickets
+  const searchInput = document.getElementById('ticket-search');
+  searchInput.addEventListener('input', (e) => {
+    state.searchTerm = e.target.value.toLowerCase().trim();
+    renderTicketsTable();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Conexión y Peticiones a la API
+// ---------------------------------------------------------------------------
+async function fetchAllData(isBackground = false) {
+  try {
+    const [dashboardRes, ticketsRes] = await Promise.all([
+      fetch('/dashboard'),
+      fetch('/tickets'),
+    ]);
+
+    if (dashboardRes.ok) {
+      state.metrics = await dashboardRes.json();
+      renderKPIs(state.metrics);
+      renderMetricsTab(state.metrics);
+    }
+
+    if (ticketsRes.ok) {
+      const data = await ticketsRes.json();
+      state.tickets = Array.isArray(data) ? data : (data.tickets || []);
+      updateFilterCounts();
+      renderTicketsTable();
+    }
+  } catch (err) {
+    if (!isBackground) {
+      showToast('Error conectando con la API del servidor', 'error');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Renderizado de KPIs (Widgets Bitrix Style)
+// ---------------------------------------------------------------------------
+function renderKPIs(metrics) {
+  if (!metrics) return;
+
+  document.getElementById('kpi-total-tickets').textContent = metrics.total_tickets || 0;
+  document.getElementById('kpi-open-tickets').textContent = metrics.total_open || 0;
+  document.getElementById('nav-open-count').textContent = metrics.total_open || 0;
+
+  // Desglose severidad abiertos
+  const bySev = metrics.open_by_severity || {};
+  document.getElementById('kpi-open-p0').textContent = `${bySev.P0 || 0} P0`;
+  document.getElementById('kpi-open-p1').textContent = `${bySev.P1 || 0} P1`;
+  document.getElementById('kpi-open-p2').textContent = `${bySev.P2 || 0} P2`;
+  document.getElementById('kpi-open-p3').textContent = `${bySev.P3 || 0} P3`;
+
+  // Auto-resolución
+  const autoPct = (metrics.auto_resolution_pct || 0).toFixed(1);
+  document.getElementById('kpi-auto-pct').textContent = `${autoPct}%`;
+
+  // SLA Breaches
+  const slaCount = metrics.sla_breaches_count || 0;
+  document.getElementById('kpi-sla-breaches').textContent = slaCount;
+  document.getElementById('kpi-sla-subtext').textContent =
+    slaCount === 1 ? '1 caso fuera de SLA' : `${slaCount} casos fuera de SLA`;
+
+  // Tiempo promedio
+  const avgMin = metrics.avg_resolution_min;
+  if (avgMin !== null && avgMin !== undefined) {
+    document.getElementById('kpi-avg-time').textContent = `${avgMin.toFixed(1)} min`;
+  } else {
+    document.getElementById('kpi-avg-time').textContent = '--';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Renderizado de la Tabla de Tickets
+// ---------------------------------------------------------------------------
+function updateFilterCounts() {
+  const all = state.tickets.length;
+  const open = state.tickets.filter(t => t.status === 'open' || t.status === 'in_progress').length;
+  const escalated = state.tickets.filter(t => t.level === 'L2' || t.escalated || t.status === 'escalated').length;
+  const auto = state.tickets.filter(t => t.resolved_by_auto).length;
+  const p0 = state.tickets.filter(t => t.severity === 'P0').length;
+
+  document.getElementById('count-all').textContent = all;
+  document.getElementById('count-open').textContent = open;
+  document.getElementById('count-escalated').textContent = escalated;
+  document.getElementById('count-auto').textContent = auto;
+  document.getElementById('count-p0').textContent = p0;
+}
+
+function renderTicketsTable() {
+  const tbody = document.getElementById('tickets-table-body');
+  if (!tbody) return;
+
+  // Filtrado reactivo
+  const filtered = state.tickets.filter(ticket => {
+    // Filtro por Estado
+    if (state.activeFilter === 'open' && ticket.status !== 'open' && ticket.status !== 'in_progress') return false;
+    if (state.activeFilter === 'escalated' && ticket.level !== 'L2' && !ticket.escalated && ticket.status !== 'escalated') return false;
+    if (state.activeFilter === 'auto' && !ticket.resolved_by_auto) return false;
+    if (state.activeFilter === 'p0' && ticket.severity !== 'P0') return false;
+
+    // Filtro por Origen
+    const isBot = (ticket.source_event_id && ticket.source_event_id.includes('bot')) ||
+                  (ticket.resolved_by && ticket.resolved_by.startsWith('runbook:')) ||
+                  (ticket.system === 'ingestion' && ticket.resolved_by_auto);
+    if (state.activeSource === 'machine' && !isBot) return false;
+    if (state.activeSource === 'human' && isBot) return false;
+
+    // Búsqueda por texto
+    if (state.searchTerm) {
+      const matchId = ticket.ticket_id.toLowerCase().includes(state.searchTerm);
+      const matchSummary = ticket.summary.toLowerCase().includes(state.searchTerm);
+      const matchSystem = ticket.system.toLowerCase().includes(state.searchTerm);
+      if (!matchId && !matchSummary && !matchSystem) return false;
+    }
+
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="10" class="text-center py-6 text-muted">
+          No se encontraron incidencias con los filtros aplicados.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(t => {
+    const isMachine = (t.source_event_id && t.source_event_id.includes('bot')) ||
+                      t.resolved_by_auto ||
+                      (t.system === 'ingestion' && t.resolved_by_auto);
+
+    const sourceTag = isMachine
+      ? `<span class="tag tag-machine">🤖 Máquina</span>`
+      : `<span class="tag tag-human">👤 Humano</span>`;
+
+    const sevClass = `tag-${t.severity.toLowerCase()}`;
+    const levelClass = t.level === 'L2' ? 'level-l2' : 'level-l1';
+    const statusClass = t.status === 'resolved' ? 'status-resolved' : (t.level === 'L2' ? 'status-escalated' : 'status-open');
+
+    const createdTime = formatTime(t.created_at);
+
+    let resCol = '<span class="text-muted">En atención</span>';
+    if (t.resolved_by_auto) {
+      resCol = `<span class="tag tag-machine" title="${t.resolved_by || 'Runbook'}">🤖 Runbook</span>`;
+    } else if (t.status === 'resolved') {
+      resCol = `<span class="tag tag-human">👨‍💻 Manual</span>`;
+    }
+
+    return `
+      <tr>
+        <td><strong class="modal-id">${t.ticket_id.substring(0, 8)}</strong></td>
+        <td>${sourceTag}</td>
+        <td>
+          <div style="font-weight: 500; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(t.summary)}">
+            ${escapeHtml(t.summary)}
+          </div>
+        </td>
+        <td><span class="tag tag-system">${t.system}</span></td>
+        <td><span class="tag ${sevClass}">${t.severity}</span></td>
+        <td><span class="badge-level ${levelClass}">${t.level}</span></td>
+        <td><span class="status-badge ${statusClass}">${t.status}</span></td>
+        <td>${resCol}</td>
+        <td><small class="text-muted">${createdTime}</small></td>
+        <td>
+          <button class="btn btn-secondary btn-sm" onclick="openTicketModal('${t.ticket_id}')">
+            Ver
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ---------------------------------------------------------------------------
+// Renderizado Pestaña Métricas & SLAs
+// ---------------------------------------------------------------------------
+function renderMetricsTab(metrics) {
+  if (!metrics) return;
+
+  // 1. Barras de volumen por sistema
+  const container = document.getElementById('system-bars-container');
+  const volume = metrics.volume_by_system || {};
+  const entries = Object.entries(volume);
+  const maxVal = Math.max(...entries.map(([, val]) => val), 1);
+
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="text-muted">Aún no hay datos de volumen.</div>';
+  } else {
+    container.innerHTML = entries.map(([sys, count]) => {
+      const pct = Math.round((count / maxVal) * 100);
+      return `
+        <div class="sys-bar-row">
+          <div class="sys-bar-meta">
+            <span><code>${sys.toUpperCase()}</code></span>
+            <span><strong>${count}</strong> casos (${Math.round((count / metrics.total_tickets) * 100 || 0)}%)</span>
+          </div>
+          <div class="sys-bar-track">
+            <div class="sys-bar-fill" style="width: ${pct}%;"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // 2. Tabla de Breaches
+  const breachesBody = document.getElementById('sla-breaches-tbody');
+  const breaches = metrics.sla_breaches || [];
+
+  if (breaches.length === 0) {
+    breachesBody.innerHTML = `
+      <tr>
+        <td colspan="5" class="text-center text-muted" style="padding: 18px;">
+          ✅ Excelente: Todos los tickets están dentro de su SLA objetivo.
+        </td>
+      </tr>
+    `;
+  } else {
+    breachesBody.innerHTML = breaches.map(b => `
+      <tr>
+        <td><code>${(b.ticket_id || '').substring(0, 8)}</code></td>
+        <td><span class="tag tag-${(b.severity || 'p2').toLowerCase()}">${b.severity}</span></td>
+        <td><span class="tag tag-system">${b.system}</span></td>
+        <td><strong class="highlight-red">+${b.minutes_overdue} min</strong></td>
+        <td><span class="status-badge status-escalated">VENCIDO</span></td>
+      </tr>
+    `).join('');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Simulador & Escenarios (1-Clic)
+// ---------------------------------------------------------------------------
+function setupSimulator() {
+  const buttons = document.querySelectorAll('.btn-sim');
+  buttons.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const scenario = btn.getAttribute('data-scenario');
+      btn.disabled = true;
+      btn.textContent = 'Procesando...';
+
+      try {
+        await executeScenario(scenario);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = btn.getAttribute('data-scenario') === 'run-sla'
+          ? '▶ Correr Job de SLA'
+          : `▶ Disparar ${scenario.includes('machine') ? 'Alerta Máquina' : (scenario.includes('human') ? 'Reporte Humano' : 'Incidente P0')}`;
+      }
+    });
+  });
+
+  // Formulario Custom
+  const form = document.getElementById('form-custom-sim');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const type = document.getElementById('sim-sender-type').value;
+    const name = document.getElementById('sim-sender-name').value;
+    const space = document.getElementById('sim-space-name').value;
+    const text = document.getElementById('sim-message-text').value.trim();
+
+    if (!text) {
+      showToast('Por favor escribe un mensaje para simular', 'warning');
+      return;
+    }
+
+    const payload = {
+      type: "MESSAGE",
+      eventTime: new Date().toISOString(),
+      space: { name: space, type: "ROOM", displayName: "Soporte Fintech" },
+      message: {
+        name: `${space}/messages/msg-${Date.now()}`,
+        sender: { name: `users/${type.toLowerCase()}-custom`, displayName: name, type: type },
+        createTime: new Date().toISOString(),
+        text: text,
+      },
+    };
+
+    try {
+      const res = await fetch('/webhook/google-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      displaySimResult(data, res.ok);
+      showToast(`Evento procesado: Ticket #${data.ticket_id.substring(0, 8)}`, 'success');
+      fetchAllData();
+    } catch (err) {
+      showToast('Error enviando evento al webhook', 'error');
+    }
+  });
+}
+
+async function executeScenario(scenario) {
+  if (scenario === 'run-sla') {
+    const res = await fetch('/sla/run', { method: 'POST' });
+    const data = await res.json();
+    showToast(`Job SLA completado: ${data.total_checked} revisados, ${data.overdue_escalated + data.stale_escalated} escalados a L2`, 'info');
+    fetchAllData();
+    return;
+  }
+
+  let payload = null;
+
+  if (scenario === 'machine-ingestion') {
+    // Alerta de máquina -> Resuelta por Runbook Engine
+    payload = {
+      type: "MESSAGE",
+      eventTime: new Date().toISOString(),
+      space: { name: "spaces/FINTECH_SUPPORT", type: "ROOM", displayName: "Soporte Infra" },
+      message: {
+        name: `spaces/FINTECH_SUPPORT/messages/bot-${Date.now()}`,
+        sender: { name: "users/monitoring-bot", displayName: "Monitoring Bot 24/7", type: "BOT" },
+        createTime: new Date().toISOString(),
+        text: "❌ Falló el pipeline de ingesta de datos — 03:14 AM",
+      },
+    };
+  } else if (scenario === 'human-transactions') {
+    // Reporte humano -> Asignado a L1 con SLA 30m
+    payload = {
+      type: "MESSAGE",
+      eventTime: new Date().toISOString(),
+      space: { name: "spaces/FINTECH_SUPPORT", type: "ROOM", displayName: "Soporte Finanzas" },
+      message: {
+        name: `spaces/FINTECH_SUPPORT/messages/human-${Date.now()}`,
+        sender: { name: "users/analyst-maria", displayName: "María López (Riesgos)", type: "HUMAN" },
+        createTime: new Date().toISOString(),
+        text: "Las transacciones del batch nocturno no se procesaron. Llevo 2 horas esperando y nada. Esto afecta el balance contable.",
+      },
+    };
+  } else if (scenario === 'critical-p0') {
+    // Incidente P0 -> Escalamiento inmediato a L2
+    payload = {
+      type: "MESSAGE",
+      eventTime: new Date().toISOString(),
+      space: { name: "spaces/FINTECH_SUPPORT", type: "ROOM", displayName: "War Room" },
+      message: {
+        name: `spaces/FINTECH_SUPPORT/messages/lead-${Date.now()}`,
+        sender: { name: "users/lead-oncall", displayName: "Lead On-Call", type: "HUMAN" },
+        createTime: new Date().toISOString(),
+        text: "ALERTA P0: Caída total en pasarela de pagos con balance afectado y transacciones rechazadas masivamente.",
+      },
+    };
+  }
+
+  if (payload) {
+    const res = await fetch('/webhook/google-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    displaySimResult(data, res.ok);
+
+    if (data.resolved_automatically) {
+      showToast(`🤖 ¡Auto-Resuelto por ${data.runbook_used}!`, 'success');
+    } else if (data.level === 'L2') {
+      showToast(`🚨 Incidente P0 escalado de inmediato a Nivel 2`, 'warning');
+    } else {
+      showToast(`✅ Ticket #${data.ticket_id.substring(0, 8)} asignado a Nivel 1`, 'success');
+    }
+
+    fetchAllData();
+  }
+}
+
+function displaySimResult(data, isSuccess) {
+  const box = document.getElementById('sim-result-box');
+  const badge = document.getElementById('sim-result-badge');
+  const jsonPre = document.getElementById('sim-result-json');
+
+  box.classList.remove('hidden');
+  badge.textContent = isSuccess ? (data.resolved_automatically ? 'AUTO-RESUELTO' : 'TICKET CREADO') : 'ERROR';
+  badge.className = `badge ${isSuccess ? (data.resolved_automatically ? 'tag-machine' : 'tag-human') : 'tag-p0'}`;
+  jsonPre.textContent = JSON.stringify(data, null, 2);
+}
+
+// ---------------------------------------------------------------------------
+// Modal de Detalle de Ticket
+// ---------------------------------------------------------------------------
+function setupModal() {
+  const modal = document.getElementById('ticket-modal');
+  const closeBtn = document.getElementById('modal-close');
+
+  closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.classList.add('hidden');
+  });
+}
+
+window.openTicketModal = function(ticketId) {
+  const ticket = state.tickets.find(t => t.ticket_id === ticketId);
+  if (!ticket) return;
+
+  document.getElementById('modal-ticket-id').textContent = `TICKET #${ticket.ticket_id.substring(0, 8)}`;
+  document.getElementById('modal-ticket-summary').textContent = ticket.summary;
+
+  document.getElementById('modal-status').textContent = ticket.status.toUpperCase();
+  document.getElementById('modal-status').className = `badge status-${ticket.status}`;
+
+  document.getElementById('modal-severity').textContent = ticket.severity;
+  document.getElementById('modal-severity').className = `badge tag-${ticket.severity.toLowerCase()}`;
+
+  document.getElementById('modal-level').textContent = ticket.level;
+  document.getElementById('modal-level').className = `badge ${ticket.level === 'L2' ? 'level-l2' : 'level-l1'}`;
+
+  document.getElementById('modal-system').textContent = ticket.system.toUpperCase();
+
+  document.getElementById('modal-sla-deadline').textContent = ticket.sla_deadline ? formatFullDate(ticket.sla_deadline) : 'N/A';
+  document.getElementById('modal-created-at').textContent = formatFullDate(ticket.created_at);
+  document.getElementById('modal-space').textContent = ticket.space_id || 'spaces/FINTECH_SUPPORT';
+  document.getElementById('modal-auto-res').textContent = ticket.resolved_by_auto ? `Sí (${ticket.resolved_by || 'Runbook'})` : 'No';
+  document.getElementById('modal-resolved-by').textContent = ticket.resolved_by || 'En progreso';
+
+  // Mensaje de simulación de Google Chat
+  const autoTag = ticket.resolved_by_auto ? ' 🤖 (resuelto automáticamente)' : '';
+  const chatMsg = `🎫 *Ticket #${ticket.ticket_id.substring(0, 8)}*${autoTag}
+• Severidad: *${ticket.severity}*
+• Sistema: ${ticket.system}
+• Nivel Asignado: ${ticket.level}
+• Estado: ${ticket.status.toUpperCase()}
+• Resumen: ${ticket.summary}`;
+
+  document.getElementById('modal-chat-message').textContent = chatMsg;
+
+  document.getElementById('ticket-modal').classList.remove('hidden');
+};
+
+// ---------------------------------------------------------------------------
+// Acciones Globales
+// ---------------------------------------------------------------------------
+function setupGlobalActions() {
+  document.getElementById('btn-refresh').addEventListener('click', () => {
+    fetchAllData();
+    showToast('Datos actualizados', 'info');
+  });
+
+  document.getElementById('btn-eval-sla').addEventListener('click', async () => {
+    const res = await fetch('/sla/run', { method: 'POST' });
+    const data = await res.json();
+    showToast(`SLA Check: ${data.total_checked} tickets evaluados`, 'info');
+    fetchAllData();
+  });
+
+  document.getElementById('chk-auto-refresh').addEventListener('change', (e) => {
+    state.autoRefresh = e.target.checked;
+    showToast(state.autoRefresh ? 'Auto-refresco activado (5s)' : 'Auto-refresco pausado', 'info');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Utilidades
+// ---------------------------------------------------------------------------
+function formatTime(isoStr) {
+  if (!isoStr) return '--';
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return isoStr;
+  }
+}
+
+function formatFullDate(isoStr) {
+  if (!isoStr) return '--';
+  try {
+    const d = new Date(isoStr);
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  } catch {
+    return isoStr;
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `<span>${message}</span>`;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(8px)';
+    toast.style.transition = 'all 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 3500);
+}

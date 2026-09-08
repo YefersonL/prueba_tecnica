@@ -373,3 +373,18 @@ class TestTicketsEndpoint:
     def test_tickets_returns_list(self, client: TestClient) -> None:
         resp = client.get("/tickets")
         assert isinstance(resp.json(), list)
+
+
+class TestFrontendEndpoint:
+    def test_root_returns_frontend_html(self, client: TestClient) -> None:
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+        assert "FintechDesk" in resp.text
+
+    def test_front_static_css_and_js(self, client: TestClient) -> None:
+        css_resp = client.get("/front/style.css")
+        assert css_resp.status_code == 200
+        js_resp = client.get("/front/app.js")
+        assert js_resp.status_code == 200
+

@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fintech Support Desk — Mesa de Ayuda & Triaje con IA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/front/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- BARRA LATERAL (ESTILO BITRIX24 / HELPDESK) -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand-logo">
+          <span class="brand-icon">🛡️</span>
+          <div>
+            <h1 class="brand-title">FintechDesk</h1>
+            <span class="brand-subtitle">Soporte Inteligente 24/7</span>
+          </div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">MESA DE TRABAJO</div>
+        <button class="nav-item active" data-tab="tab-dashboard">
+          <span class="nav-icon">📊</span>
+          <span class="nav-text">Tablero General</span>
+        </button>
+        <button class="nav-item" data-tab="tab-tickets">
+          <span class="nav-icon">🎫</span>
+          <span class="nav-text">Casos & Tickets</span>
+          <span class="badge-count" id="nav-open-count">0</span>
+        </button>
+        <button class="nav-item" data-tab="tab-simulator">
+          <span class="nav-icon">🧪</span>
+          <span class="nav-text">Simulador & Chat</span>
+        </button>
+
+        <div class="nav-section-label">AUTOMATIZACIÓN & CONTROL</div>
+        <button class="nav-item" data-tab="tab-runbooks">
+          <span class="nav-icon">⚡</span>
+          <span class="nav-text">Runbooks & Agentes</span>
+        </button>
+        <button class="nav-item" data-tab="tab-metrics">
+          <span class="nav-icon">📈</span>
+          <span class="nav-text">Métricas & SLAs</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="status-card">
+          <div class="status-indicator">
+            <span class="status-dot pulse-green"></span>
+            <span class="status-title">Sistema Operativo</span>
+          </div>
+          <div class="status-meta">
+            <div class="meta-row"><span>IA:</span> <strong id="status-ai-mode">Reglas + LLM</strong></div>
+            <div class="meta-row"><span>Google Chat:</span> <strong id="status-chat-mode">Bot Conectado</strong></div>
+            <div class="meta-row"><span>Base de Datos:</span> <strong>SQLite / Repo</strong></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="main-content">
+      <!-- HEADER SUPERIOR -->
+      <header class="top-bar">
+        <div class="top-bar-left">
+          <h2 class="view-title" id="view-title">Tablero General</h2>
+          <span class="breadcrumb" id="view-breadcrumb">Monitoreo de incidencias y SLAs en tiempo real</span>
+        </div>
+
+        <div class="top-bar-right">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="ticket-search" placeholder="Buscar por ID, resumen o sistema...">
+          </div>
+
+          <button id="btn-eval-sla" class="btn btn-warning" title="Evalúa tickets estancados y vencidos">
+            <span class="btn-icon">⏱️</span> Evaluar SLAs
+          </button>
+
+          <button id="btn-refresh" class="btn btn-secondary" title="Refrescar datos">
+            <span class="btn-icon">🔄</span> Refrescar
+          </button>
+
+          <div class="auto-refresh-toggle" title="Auto-refrescar cada 5 segundos">
+            <label class="switch">
+              <input type="checkbox" id="chk-auto-refresh" checked>
+              <span class="slider round"></span>
+            </label>
+            <span class="switch-label">En vivo</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- SECCIÓN TABLERO / KPIS BITRIX STYLE -->
+      <section class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Total Casos Registrados</span>
+            <span class="kpi-icon icon-blue">📋</span>
+          </div>
+          <div class="kpi-value" id="kpi-total-tickets">0</div>
+          <div class="kpi-footer text-muted">Incidentes procesados en la sesión</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Casos Abiertos (Activos)</span>
+            <span class="kpi-icon icon-amber">⏳</span>
+          </div>
+          <div class="kpi-value" id="kpi-open-tickets">0</div>
+          <div class="kpi-footer">
+            <span class="kpi-sub-pill bg-danger" id="kpi-open-p0">0 P0</span>
+            <span class="kpi-sub-pill bg-purple" id="kpi-open-p1">0 P1</span>
+            <span class="kpi-sub-pill bg-amber" id="kpi-open-p2">0 P2</span>
+            <span class="kpi-sub-pill bg-info" id="kpi-open-p3">0 P3</span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Auto-Resolución (Runbooks)</span>
+            <span class="kpi-icon icon-green">🤖</span>
+          </div>
+          <div class="kpi-value highlight-green" id="kpi-auto-pct">0%</div>
+          <div class="kpi-footer text-success">Resuelto sin intervención humana</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Incumplimientos de SLA</span>
+            <span class="kpi-icon icon-red">⚠️</span>
+          </div>
+          <div class="kpi-value highlight-red" id="kpi-sla-breaches">0</div>
+          <div class="kpi-footer" id="kpi-sla-subtext">0 casos fuera de SLA</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">Tiempo Promedio (MTTR)</span>
+            <span class="kpi-icon icon-cyan">⚡</span>
+          </div>
+          <div class="kpi-value" id="kpi-avg-time">--</div>
+          <div class="kpi-footer text-muted">Tiempo medio de resolución</div>
+        </div>
+      </section>
+
+      <!-- VISTA TABLERO PRINCIPAL / TAB TICKETS -->
+      <section id="tab-tickets" class="tab-pane active">
+        <!-- BARRA DE FILTROS TIPO BITRIX -->
+        <div class="filter-bar">
+          <div class="filter-group">
+            <span class="filter-label">Estado:</span>
+            <div class="filter-chips" id="status-filters">
+              <button class="chip active" data-filter="all">Todos (<span id="count-all">0</span>)</button>
+              <button class="chip" data-filter="open">Abiertos (<span id="count-open">0</span>)</button>
+              <button class="chip" data-filter="escalated">Escalados L2 (<span id="count-escalated">0</span>)</button>
+              <button class="chip" data-filter="auto">Auto-resueltos (<span id="count-auto">0</span>)</button>
+              <button class="chip" data-filter="p0">Críticos P0 (<span id="count-p0">0</span>)</button>
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <span class="filter-label">Origen:</span>
+            <div class="filter-chips" id="source-filters">
+              <button class="chip active" data-source="all">Todos</button>
+              <button class="chip" data-source="human">👤 Humanos</button>
+              <button class="chip" data-source="machine">🤖 Máquinas</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TABLA DE TICKETS -->
+        <div class="table-container">
+          <table class="tickets-table">
+            <thead>
+              <tr>
+                <th width="110">ID</th>
+                <th width="100">Origen</th>
+                <th>Resumen del Caso</th>
+                <th width="130">Sistema</th>
+                <th width="90">Severidad</th>
+                <th width="80">Nivel</th>
+                <th width="110">Estado</th>
+                <th width="120">Resolución</th>
+                <th width="110">Creado</th>
+                <th width="80">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tickets-table-body">
+              <tr>
+                <td colspan="10" class="text-center py-6 text-muted">
+                  Cargando incidencias...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- VISTA SIMULADOR & PRUEBAS (INTERACTIVO) -->
+      <section id="tab-simulator" class="tab-pane">
+        <div class="simulator-layout">
+          <!-- Columna izquierda: Escenarios Pre-definidos para la prueba técnica -->
+          <div class="card sim-presets-card">
+            <div class="card-header">
+              <h3 class="card-title">🧪 Escenarios de la Prueba Técnica (1-Clic)</h3>
+              <p class="card-subtitle">Ejecuta en vivo los casos de uso descritos en el reto técnico:</p>
+            </div>
+            <div class="card-body presets-list">
+              <!-- Escenario 1: Alerta Máquina -->
+              <div class="preset-item">
+                <div class="preset-info">
+                  <div class="preset-title">
+                    <span class="tag tag-machine">🤖 MÁQUINA</span>
+                    <strong>Alerta de Monitoreo: Falla Ingesta Nocturna</strong>
+                  </div>
+                  <p class="preset-desc">
+                    El sistema detecta una alerta de bot a las 03:14 AM, la clasifica como <code>INGESTION</code> (P1/P2) y el <strong>Runbook Engine la auto-resuelve</strong> reiniciando el pipeline.
+                  </p>
+                </div>
+                <button class="btn btn-outline-success btn-sim" data-scenario="machine-ingestion">
+                  ▶ Disparar Alerta Máquina
+                </button>
+              </div>
+
+              <!-- Escenario 2: Reporte Humano -->
+              <div class="preset-item">
+                <div class="preset-info">
+                  <div class="preset-title">
+                    <span class="tag tag-human">👤 HUMANO</span>
+                    <strong>Reporte de Analista: Transacciones no Procesadas</strong>
+                  </div>
+                  <p class="preset-desc">
+                    Un analista financiero reporta retraso en el batch. Se clasifica en <code>TRANSACTIONS</code>, se crea ticket y se asigna a <strong>Nivel 1 con SLA de 30 min</strong>.
+                  </p>
+                </div>
+                <button class="btn btn-outline-primary btn-sim" data-scenario="human-transactions">
+                  ▶ Disparar Reporte Humano
+                </button>
+              </div>
+
+              <!-- Escenario 3: Incidente Crítico P0 -->
+              <div class="preset-item">
+                <div class="preset-info">
+                  <div class="preset-title">
+                    <span class="tag tag-p0">🔥 P0 CRÍTICO</span>
+                    <strong>Producción Caída: Pasarela de Pagos / Fraude</strong>
+                  </div>
+                  <p class="preset-desc">
+                    Impacto directo en clientes y balance contable. El clasificador le asigna <strong>P0</strong> y el motor lo escala de inmediato a <strong>Nivel 2 (Senior / SRE)</strong>.
+                  </p>
+                </div>
+                <button class="btn btn-outline-danger btn-sim" data-scenario="critical-p0">
+                  ▶ Disparar Incidente P0
+                </button>
+              </div>
+
+              <!-- Escenario 4: Chequeo de Estancamiento / SLA -->
+              <div class="preset-item">
+                <div class="preset-info">
+                  <div class="preset-title">
+                    <span class="tag tag-sla">⏱️ SLA JOB</span>
+                    <strong>Job Periódico de Detección de Estancamiento</strong>
+                  </div>
+                  <p class="preset-desc">
+                    Ejecuta el job que evalúa tickets abiertos, detecta vencimientos de SLA o inactividad y escala automáticamente a Nivel 2.
+                  </p>
+                </div>
+                <button class="btn btn-outline-warning btn-sim" data-scenario="run-sla">
+                  ▶ Correr Job de SLA
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Columna derecha: Formulario de Mensaje Libre / Prueba Arbitraria -->
+          <div class="card sim-custom-card">
+            <div class="card-header">
+              <h3 class="card-title">💬 Probar Mensaje Libre de Google Chat</h3>
+              <p class="card-subtitle">Escribe cualquier texto libre y observa la clasificación y triaje en vivo</p>
+            </div>
+            <div class="card-body">
+              <form id="form-custom-sim">
+                <div class="form-group">
+                  <label for="sim-sender-type">Tipo de Remitente:</label>
+                  <select id="sim-sender-type" class="form-control">
+                    <option value="HUMAN">👤 Usuario / Analista (HUMAN)</option>
+                    <option value="BOT">🤖 Bot / Sistema de Monitoreo (BOT)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="sim-sender-name">Nombre del Remitente:</label>
+                  <input type="text" id="sim-sender-name" class="form-control" value="Carlos Mendoza (Riesgos)">
+                </div>
+
+                <div class="form-group">
+                  <label for="sim-space-name">Espacio de Google Chat:</label>
+                  <input type="text" id="sim-space-name" class="form-control" value="spaces/AAAA1111">
+                </div>
+
+                <div class="form-group">
+                  <label for="sim-message-text">Mensaje:</label>
+                  <textarea id="sim-message-text" rows="4" class="form-control" placeholder="Ejemplo: No puedo ingresar al módulo de autenticación bancaria con el token 2FA..."></textarea>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">
+                  🚀 Enviar Evento a la API
+                </button>
+              </form>
+
+              <!-- Resultado del simulador -->
+              <div id="sim-result-box" class="sim-result-box hidden">
+                <div class="sim-result-header">
+                  <strong>Respuesta del Webhook:</strong>
+                  <span id="sim-result-badge" class="badge"></span>
+                </div>
+                <pre id="sim-result-json"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VISTA RUNBOOKS & AUTOMATIZACIÓN -->
+      <section id="tab-runbooks" class="tab-pane">
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">⚡ Catálogo de Runbooks Automatizados</h3>
+            <p class="card-subtitle">Estrategia de reducción del soporte manual mediante automatización determinista</p>
+          </div>
+          <div class="card-body">
+            <div class="runbooks-grid">
+              <div class="runbook-card">
+                <div class="runbook-header">
+                  <span class="runbook-icon">🔄</span>
+                  <div>
+                    <h4 class="runbook-name">runbook:ingestion_pipeline_restart</h4>
+                    <span class="tag tag-machine">Sistema: INGESTION</span>
+                  </div>
+                </div>
+                <p class="runbook-desc">
+                  Maneja fallos transitorios en pipelines de datos ETL/batch nocturnos. Reinicia el job de ingesta y valida health check.
+                </p>
+                <div class="runbook-rules">
+                  <strong>Criterios de ejecución:</strong>
+                  <ul>
+                    <li>Aplica a severidades P1 y P2 en el sistema de Ingesta.</li>
+                    <li><strong>Exclusión estricta:</strong> Nunca ejecuta en P0 (requiere análisis humano).</li>
+                    <li>Cierra el ticket con <code>resolved_by_auto = True</code> y notifica al espacio.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="runbook-card">
+                <div class="runbook-header">
+                  <span class="runbook-icon">⚡</span>
+                  <div>
+                    <h4 class="runbook-name">runbook:payments_latency_clear</h4>
+                    <span class="tag tag-machine">Sistema: PAYMENTS</span>
+                  </div>
+                </div>
+                <p class="runbook-desc">
+                  Maneja colas de pago saturadas o latencia en switches bancarios. Limpia caches y reinicia pools de conexiones de pagos.
+                </p>
+                <div class="runbook-rules">
+                  <strong>Criterios de ejecución:</strong>
+                  <ul>
+                    <li>Aplica a incidencias P2 de latencia en pagos.</li>
+                    <li>Si el handler falla, captura el error sin caerse y pasa el ticket a L1.</li>
+                    <li>Ahorra hasta un 40% de intervenciones manuales en horas pico.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VISTA MÉTRICAS & SLAS -->
+      <section id="tab-metrics" class="tab-pane">
+        <div class="metrics-dashboard-grid">
+          <!-- Gráfico / Distribución por Sistema -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">📊 Distribución de Incidentes por Sistema</h3>
+              <p class="card-subtitle">Volumen histórico acumulado por componente de la fintech</p>
+            </div>
+            <div class="card-body">
+              <div id="system-bars-container" class="system-bars-container">
+                <div class="text-muted">Cargando distribución...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tabla de Incumplimientos de SLA -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">⚠️ Detalle de Incumplimientos de SLA</h3>
+              <p class="card-subtitle">Casos que superaron el tiempo máximo permitido según severidad</p>
+            </div>
+            <div class="card-body">
+              <div class="table-container">
+                <table class="simple-table">
+                  <thead>
+                    <tr>
+                      <th>Ticket ID</th>
+                      <th>Severidad</th>
+                      <th>Sistema</th>
+                      <th>Minutos Retraso</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sla-breaches-tbody">
+                    <tr>
+                      <td colspan="5" class="text-center text-muted">Sin incumplimientos registrados</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- MODAL DE DETALLE DE TICKET (TIPO DRAWER BITRIX) -->
+  <div id="ticket-modal" class="modal-backdrop hidden">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div>
+          <span id="modal-ticket-id" class="modal-id">TICK-XXXXX</span>
+          <h3 id="modal-ticket-summary" class="modal-title">Resumen del Ticket</h3>
+        </div>
+        <button id="modal-close" class="btn-close">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-meta-grid">
+          <div class="meta-box">
+            <span class="meta-lbl">Estado</span>
+            <span id="modal-status" class="badge">OPEN</span>
+          </div>
+          <div class="meta-box">
+            <span class="meta-lbl">Severidad</span>
+            <span id="modal-severity" class="badge">P2</span>
+          </div>
+          <div class="meta-box">
+            <span class="meta-lbl">Nivel de Soporte</span>
+            <span id="modal-level" class="badge">L1</span>
+          </div>
+          <div class="meta-box">
+            <span class="meta-lbl">Sistema Afectado</span>
+            <span id="modal-system" class="badge">PAYMENTS</span>
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <h4>Detalle y Diagnóstico</h4>
+          <div class="detail-row"><span>SLA Deadline:</span> <strong id="modal-sla-deadline">--</strong></div>
+          <div class="detail-row"><span>Fecha Creación:</span> <span id="modal-created-at">--</span></div>
+          <div class="detail-row"><span>Espacio Google Chat:</span> <code id="modal-space">--</code></div>
+          <div class="detail-row"><span>Resuelto Automáticamente:</span> <strong id="modal-auto-res">No</strong></div>
+          <div class="detail-row"><span>Cerrado Por:</span> <span id="modal-resolved-by">--</span></div>
+        </div>
+
+        <div class="modal-section">
+          <h4>Notificación enviada a Google Chat</h4>
+          <div class="chat-preview-bubble">
+            <div class="chat-bubble-header">
+              <span class="chat-bot-avatar">🤖</span>
+              <strong>Fintech Support Bot</strong>
+              <span class="chat-tag">Google Chat App</span>
+            </div>
+            <pre id="modal-chat-message" class="chat-bubble-text"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICACIONES -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/front/app.js"></script>
+</body>
+</html>
