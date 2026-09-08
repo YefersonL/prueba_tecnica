@@ -24,6 +24,8 @@ Documentación del payload de Google Chat:
 
 from __future__ import annotations
 
+import re
+
 from core.models import EventSource, RawEvent
 
 # IDs de bots/sistemas conocidos — en producción esto vendría de config/BD
@@ -104,17 +106,23 @@ def normalize_event(payload: dict) -> RawEvent:
         )
 
     message = payload["message"]
-    sender = message["sender"]
+    sender = message.get("sender") or payload.get("user") or {}
 
-    sender_id: str = sender["name"]
+    sender_id: str = sender.get("name", "users/unknown")
     sender_type: str = sender.get("type", "TYPE_UNSPECIFIED")
-    space_id: str = message["space"]["name"]
-    text: str = message.get("text", "").strip()
 
-    if not text:
+    # En Google Chat API el espacio puede venir en payload["space"] O en message["space"]
+    space_obj = payload.get("space") or message.get("space") or {}
+    space_id: str = space_obj.get("name", "spaces/default")
+
+    raw_text: str = message.get("text", "").strip()
+    if not raw_text:
         raise ValueError(
             f"Mensaje vacío recibido de sender '{sender_id}' en space '{space_id}'."
         )
+
+    # Limpiar mención al bot si viene al inicio (ej. "@Fintech Support Bot Las transacciones...")
+    text = re.sub(r"^@\S+\s*", "", raw_text).strip() or raw_text
 
     source = _resolve_source(sender_type=sender_type, sender_id=sender_id)
 
@@ -125,6 +133,7 @@ def normalize_event(payload: dict) -> RawEvent:
         source=source,
         raw_payload=payload,
     )
+
 
 
 def normalize_batch(payloads: list[dict]) -> list[RawEvent]:

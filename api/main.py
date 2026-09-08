@@ -91,6 +91,8 @@ class WebhookResponse(BaseModel):
     ack_message: str
     classified_by: str
     text: str | None = None  # Compatible con Google Chat App interactive response
+    thread: dict[str, str] | None = None  # Responde en el mismo hilo del chat
+
 
 
 class SLAJobResponse(BaseModel):
@@ -168,6 +170,30 @@ async def receive_google_chat_event(
     except Exception:
         raise HTTPException(status_code=400, detail="Payload JSON inválido.")
 
+    # Evento de bienvenida al ser agregado a un espacio o DM en Google Chat
+    event_type = payload.get("type", "")
+    if event_type == "ADDED_TO_SPACE":
+        welcome_text = (
+            "👋 *¡Hola! Soy Fintech Support Bot*\n\n"
+            "Estoy listo para recibir reportes de usuarios y alertas de sistemas en este chat.\n"
+            "• Clasificaré cada incidencia con IA y asignaré nivel (L1/L2).\n"
+            "• Monitorearé los tiempos límite de SLA.\n"
+            "• Ejecutaré runbooks de recuperación automática en fallas recurrentes."
+        )
+        return WebhookResponse(
+            event_id="evt-welcome",
+            ticket_id="N/A",
+            ticket_created=False,
+            severity="INFO",
+            system="GENERAL",
+            level="L1",
+            resolved_automatically=False,
+            runbook_used=None,
+            ack_message=welcome_text,
+            classified_by="system",
+            text=welcome_text,
+        )
+
     # 1. Normalizar
     try:
         event = normalize_event(payload)
@@ -201,6 +227,14 @@ async def receive_google_chat_event(
     last_msg = notifier.sent_messages[-1] if notifier.sent_messages else None
     ack_text = last_msg.text if last_msg else "Evento procesado."
 
+    # Preservar el hilo de Google Chat para responder en el mismo hilo
+    thread_info = None
+    msg_obj = payload.get("message", {})
+    if isinstance(msg_obj, dict) and "thread" in msg_obj and isinstance(msg_obj["thread"], dict):
+        thread_name = msg_obj["thread"].get("name")
+        if thread_name:
+            thread_info = {"name": thread_name}
+
     return WebhookResponse(
         event_id=consumed.event_id,
         ticket_id=ticket.ticket_id,
@@ -213,7 +247,9 @@ async def receive_google_chat_event(
         ack_message=ack_text,
         classified_by=classification.classified_by,
         text=ack_text,
+        thread=thread_info,
     )
+
 
 
 @app.post(
