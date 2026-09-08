@@ -98,13 +98,13 @@ curl -X POST http://localhost:8000/webhook/google-chat \
 ## Plan de construcción (estado actual)
 
 - [x] **Paso 1**: Estructura base + interfaces (modelos, puertos)
-- [ ] **Paso 2**: Ingesta y distinción humano/máquina
-- [ ] **Paso 3**: Clasificador (reglas + LLM mock) + de-duplicación
-- [ ] **Paso 4**: Motor de tickets (creación, asignación, escalamiento)
-- [ ] **Paso 5**: Job de SLA (detección de estancamiento)
-- [ ] **Paso 6**: Comunicación con el usuario (ChatNotifier)
-- [ ] **Paso 7**: Automatización de lo recurrente (runbook)
-- [ ] **Paso 8**: Dashboard/métricas (endpoint JSON)
+- [x] **Paso 2**: Ingesta y distinción humano/máquina
+- [x] **Paso 3**: Clasificador (reglas + Gemini API) + de-duplicación
+- [x] **Paso 4**: Motor de tickets (creación, asignación, escalamiento) + SQLite
+- [x] **Paso 5**: Job de SLA (detección de estancamiento)
+- [x] **Paso 6**: Comunicación con el usuario (ChatNotifier) — incluido en Paso 5
+- [x] **Paso 7**: Automatización de lo recurrente (RunbookEngine)
+- [x] **Paso 8**: Dashboard/métricas (endpoint JSON) + API FastAPI completa
 
 ---
 
