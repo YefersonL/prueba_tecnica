@@ -32,3 +32,9 @@ htmlcov/
 .env
 .env.*
 !.env.example
+
+# Credenciales y llaves de servicio (GCP, Google Chat, etc.)
+credentials/
+*service_account*.json
+*.pem
+

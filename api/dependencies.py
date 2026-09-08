@@ -76,9 +76,19 @@ def get_llm_client() -> LLMClient:
 def get_notifier() -> LocalChatNotifier:
     """
     Singleton del notificador.
-    En GCP: reemplazar por GoogleChatAPINotifier.
+    Si existen credenciales de GCP (Service Account) → GoogleChatApiNotifier real.
+    Si no → LocalChatNotifier (emulación local para tests y desarrollo).
     """
+    from pathlib import Path
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "credentials/service_account.json")
+    if Path(creds_path).exists():
+        try:
+            from adapters.google_chat_api import GoogleChatApiNotifier
+            return GoogleChatApiNotifier(credentials_path=creds_path, log_to_console=True)
+        except Exception:
+            pass
     return LocalChatNotifier(log_to_console=True)
+
 
 
 @lru_cache(maxsize=1)
