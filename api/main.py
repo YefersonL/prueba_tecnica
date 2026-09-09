@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -44,6 +45,8 @@ from api.dependencies import (
 from core.ingestion import normalize_event
 from core.metrics import compute_metrics
 from core.system_logger import log_event
+
+load_dotenv()
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +97,7 @@ class WebhookResponse(BaseModel):
     classified_by: str
     text: str | None = None  # Compatible con Google Chat App interactive response
     thread: dict[str, str] | None = None  # Responde en el mismo hilo del chat
+    actionResponse: dict[str, str] | None = {"type": "NEW_MESSAGE"}
 
 
 
@@ -189,6 +193,12 @@ async def receive_google_chat_event(
 
     log_event("INFO", "WEBHOOK", f"Petición recibida en {request.url.path}", {"keys": list(payload.keys())})
 
+    is_workspace_addon = (
+        "commonEventObject" in payload
+        or "chat" in payload
+        or "authorizationEventObject" in payload
+    )
+
     # Evento de bienvenida al ser agregado a un espacio o DM en Google Chat
     event_type = payload.get("type", "")
     if event_type == "ADDED_TO_SPACE":
@@ -200,6 +210,13 @@ async def receive_google_chat_event(
             "• Monitorearé los tiempos límite de SLA.\n"
             "• Ejecutaré runbooks de recuperación automática en fallas recurrentes."
         )
+        if is_workspace_addon:
+            return JSONResponse(
+                content={
+                    "actionResponse": {"type": "NEW_MESSAGE"},
+                    "text": welcome_text,
+                }
+            )
         return WebhookResponse(
             event_id="evt-welcome",
             ticket_id="N/A",
@@ -212,6 +229,7 @@ async def receive_google_chat_event(
             ack_message=welcome_text,
             classified_by="system",
             text=welcome_text,
+            actionResponse={"type": "NEW_MESSAGE"},
         )
 
     # 1. Normalizar
@@ -281,6 +299,21 @@ async def receive_google_chat_event(
         if thread_name:
             thread_info = {"name": thread_name}
 
+    if is_workspace_addon:
+        log_event(
+            "SUCCESS",
+            "CHAT_API",
+            "Respuesta para Google Workspace Add-on enviada (actionResponse: NEW_MESSAGE + text)",
+        )
+        return JSONResponse(
+            content={
+                "actionResponse": {
+                    "type": "NEW_MESSAGE",
+                },
+                "text": ack_text,
+            }
+        )
+
     return WebhookResponse(
         event_id=consumed.event_id,
         ticket_id=ticket.ticket_id,
@@ -294,6 +327,7 @@ async def receive_google_chat_event(
         classified_by=classification.classified_by,
         text=ack_text,
         thread=thread_info,
+        actionResponse={"type": "NEW_MESSAGE"},
     )
 
 

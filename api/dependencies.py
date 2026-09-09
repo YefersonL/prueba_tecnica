@@ -21,6 +21,8 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
+from dotenv import load_dotenv
+
 from adapters.chat_notifier import LocalChatNotifier
 from adapters.queue import InMemoryEventQueue
 from adapters.sqlite_repo import SQLiteTicketRepository
@@ -28,7 +30,10 @@ from core.classifier import EventClassifier
 from core.ports import ChatNotifier, EventQueue, LLMClient, TicketRepository
 from core.runbook_engine import RunbookEngine
 from core.sla_job import SLAJob
+from core.system_logger import log_event
 from core.ticket_engine import TicketEngine
+
+load_dotenv()
 
 
 @lru_cache(maxsize=1)
@@ -65,9 +70,11 @@ def get_llm_client() -> LLMClient:
     if api_key:
         try:
             from adapters.llm_gemini import GeminiLLMClient
-            return GeminiLLMClient(api_key=api_key)
-        except ImportError:
-            pass  # google-generativeai no instalada → fallback a mock
+            client = GeminiLLMClient(api_key=api_key)
+            log_event("SUCCESS", "LLM_INIT", f"GeminiLLMClient activo con modelo '{client._model_name}'")
+            return client
+        except Exception as exc:
+            log_event("WARNING", "LLM_INIT", f"Error iniciando GeminiLLMClient: {exc}. Fallback a MockLLMClient.")
     from adapters.llm_mock import MockLLMClient
     return MockLLMClient()
 

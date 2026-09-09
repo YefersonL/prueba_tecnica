@@ -343,6 +343,45 @@ class TestWebhookEndpoint:
         )
         assert resp.json()["ticket_created"] is True
 
+    def test_google_workspace_addon_returns_action_response(self, client: TestClient) -> None:
+        """Petición enviada desde Google Workspace Add-on (Google Chat real)."""
+        payload = {
+            "commonEventObject": {"platform": "WEB"},
+            "authorizationEventObject": {"userId": "123"},
+            "chat": {
+                "messagePayload": {
+                    "message": {
+                        "text": "Las transacciones del panel nocturno no se procesaron",
+                        "sender": {"name": "users/analyst-001", "type": "HUMAN"},
+                        "space": {"name": "spaces/TEST-ADDON"},
+                    }
+                }
+            }
+        }
+        resp = client.post("/webhook/google-chat", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        # Google Workspace Add-on exige actionResponse.type == NEW_MESSAGE
+        assert "actionResponse" in data
+        assert data["actionResponse"]["type"] == "NEW_MESSAGE"
+        assert "text" in data
+        assert "Ticket" in data["text"]
+        # No debe contener campos internos no soportados por el Add-on
+        assert "ticket_id" not in data
+
+    def test_added_to_space_workspace_addon(self, client: TestClient) -> None:
+        """Evento ADDED_TO_SPACE en entorno Google Workspace Add-on."""
+        payload = {
+            "type": "ADDED_TO_SPACE",
+            "commonEventObject": {"platform": "WEB"},
+            "chat": {"spacePayload": {"type": "ADDED_TO_SPACE"}},
+        }
+        resp = client.post("/webhook/google-chat", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["actionResponse"]["type"] == "NEW_MESSAGE"
+        assert "¡Hola!" in data["text"]
+
 
 class TestSLAJobEndpoint:
     def test_sla_run_returns_200(self, client: TestClient) -> None:

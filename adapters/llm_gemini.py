@@ -83,7 +83,7 @@ class GeminiLLMClient:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "gemini-2.0-flash",
+        model: str | None = None,
     ) -> None:
         if not _GENAI_AVAILABLE:
             raise ImportError(
@@ -98,9 +98,10 @@ class GeminiLLMClient:
                 "Defínela en una variable de entorno o pásala al constructor."
             )
 
+        resolved_model = model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
         genai.configure(api_key=resolved_key)
-        self._model = genai.GenerativeModel(model)
-        self._model_name = model
+        self._model = genai.GenerativeModel(resolved_model)
+        self._model_name = resolved_model
 
     def classify_text(self, text: str) -> tuple[Severity, SystemTag, str]:
         """
@@ -118,7 +119,7 @@ class GeminiLLMClient:
                 prompt,
                 generation_config={
                     "temperature": 0.1,        # baja temperatura = más determinístico
-                    "max_output_tokens": 256,  # la respuesta JSON es corta
+                    "max_output_tokens": 1024, # suficiente espacio para tokens de razonamiento + JSON
                     "response_mime_type": "application/json",
                 },
             )
