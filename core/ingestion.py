@@ -99,20 +99,28 @@ def normalize_event(payload: dict) -> RawEvent:
     y retornar HTTP 422. Esto hace que los errores de payload sean visibles y
     rastreables desde el inicio del pipeline.
     """
-    event_type = payload.get("type", "")
-    if event_type != "MESSAGE":
-        raise ValueError(
-            f"Tipo de evento no soportado: '{event_type}'. Solo se procesan eventos MESSAGE."
-        )
-
-    message = payload["message"]
-    sender = message.get("sender") or payload.get("user") or {}
+    # 1. Detectar si viene en formato Google Workspace Add-on (chat.messagePayload)
+    chat_obj = payload.get("chat")
+    if isinstance(chat_obj, dict):
+        message_payload = chat_obj.get("messagePayload") or {}
+        message = message_payload.get("message") or {}
+        space_obj = message_payload.get("space") or message.get("space") or {}
+        sender = message.get("sender") or chat_obj.get("user") or {}
+    else:
+        # Formato clásico webhook Google Chat
+        event_type = payload.get("type", "")
+        if event_type != "MESSAGE":
+            raise ValueError(
+                f"Tipo de evento no soportado: '{event_type}'. Solo se procesan eventos MESSAGE."
+            )
+        message = payload.get("message")
+        if not message or not isinstance(message, dict):
+            raise KeyError("El payload no contiene el objeto 'message'.")
+        space_obj = payload.get("space") or message.get("space") or {}
+        sender = message.get("sender") or payload.get("user") or {}
 
     sender_id: str = sender.get("name", "users/unknown")
     sender_type: str = sender.get("type", "TYPE_UNSPECIFIED")
-
-    # En Google Chat API el espacio puede venir en payload["space"] O en message["space"]
-    space_obj = payload.get("space") or message.get("space") or {}
     space_id: str = space_obj.get("name", "spaces/default")
 
     raw_text: str = message.get("text", "").strip()
@@ -133,6 +141,7 @@ def normalize_event(payload: dict) -> RawEvent:
         source=source,
         raw_payload=payload,
     )
+
 
 
 

@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     status           TEXT NOT NULL,
     level            TEXT NOT NULL,
     summary          TEXT NOT NULL,
+    source           TEXT NOT NULL DEFAULT 'human',
     escalated        INTEGER NOT NULL DEFAULT 0,
     resolved_by_auto INTEGER NOT NULL DEFAULT 0,
     resolved_by      TEXT,
@@ -109,6 +110,7 @@ def _ticket_to_row(ticket: Ticket) -> dict:
         "status": ticket.status.value,
         "level": ticket.level.value,
         "summary": ticket.summary,
+        "source": ticket.source.value if hasattr(ticket, "source") and ticket.source else "human",
         "escalated": int(ticket.escalated),
         "resolved_by_auto": int(ticket.resolved_by_auto),
         "resolved_by": ticket.resolved_by,
@@ -121,6 +123,13 @@ def _ticket_to_row(ticket: Ticket) -> dict:
 
 def _row_to_ticket(row: sqlite3.Row) -> Ticket:
     """Reconstruye un Ticket desde una fila de SQLite."""
+    from core.models import EventSource
+    source_val = row["source"] if "source" in row.keys() else "human"
+    try:
+        source_enum = EventSource(source_val)
+    except Exception:
+        source_enum = EventSource.HUMAN
+
     return Ticket(
         ticket_id=row["ticket_id"],
         source_event_id=row["source_event_id"],
@@ -130,6 +139,7 @@ def _row_to_ticket(row: sqlite3.Row) -> Ticket:
         status=TicketStatus(row["status"]),
         level=SupportLevel(row["level"]),
         summary=row["summary"],
+        source=source_enum,
         escalated=bool(row["escalated"]),
         resolved_by_auto=bool(row["resolved_by_auto"]),
         resolved_by=row["resolved_by"],
@@ -138,6 +148,7 @@ def _row_to_ticket(row: sqlite3.Row) -> Ticket:
         sla_deadline=_str_to_dt(row["sla_deadline"]),
         resolved_at=_str_to_dt(row["resolved_at"]),
     )
+
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +188,11 @@ class SQLiteTicketRepository:
             conn.execute(_CREATE_TABLE_SQL)
             for idx_sql in _CREATE_INDEXES_SQL:
                 conn.execute(idx_sql)
+            # Migración segura si la tabla ya existía sin la columna 'source'
+            try:
+                conn.execute("ALTER TABLE tickets ADD COLUMN source TEXT NOT NULL DEFAULT 'human';")
+            except sqlite3.OperationalError:
+                pass
 
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
@@ -220,11 +236,11 @@ class SQLiteTicketRepository:
                 """
                 INSERT OR REPLACE INTO tickets (
                     ticket_id, source_event_id, space_id, system, severity,
-                    status, level, summary, escalated, resolved_by_auto,
+                    status, level, summary, source, escalated, resolved_by_auto,
                     resolved_by, created_at, updated_at, sla_deadline, resolved_at
                 ) VALUES (
                     :ticket_id, :source_event_id, :space_id, :system, :severity,
-                    :status, :level, :summary, :escalated, :resolved_by_auto,
+                    :status, :level, :summary, :source, :escalated, :resolved_by_auto,
                     :resolved_by, :created_at, :updated_at, :sla_deadline, :resolved_at
                 )
                 """,

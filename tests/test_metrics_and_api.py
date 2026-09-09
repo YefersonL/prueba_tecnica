@@ -313,9 +313,16 @@ class TestWebhookEndpoint:
         assert data["classified_by"] == "llm"
 
     def test_invalid_event_type_returns_422(self, client: TestClient) -> None:
-        bad_payload = {"type": "ADDED_TO_SPACE"}
+        bad_payload = {"type": "CARD_CLICKED"}
         resp = client.post("/webhook/google-chat", json=bad_payload)
         assert resp.status_code == 422
+
+    def test_added_to_space_returns_welcome_200(self, client: TestClient) -> None:
+        payload = {"type": "ADDED_TO_SPACE"}
+        resp = client.post("/webhook/google-chat", json=payload)
+        assert resp.status_code == 200
+        assert "¡Hola!" in resp.json()["ack_message"]
+
 
     def test_malformed_json_returns_400(self, client: TestClient) -> None:
         resp = client.post(

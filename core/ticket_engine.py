@@ -156,6 +156,7 @@ class TicketEngine:
             system=classification.system,
             severity=classification.severity,
             summary=classification.summary,
+            source=event.source,
             level=level,
             created_at=now,
             updated_at=now,

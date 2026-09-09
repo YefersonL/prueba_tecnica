@@ -152,8 +152,10 @@ class Ticket:
     system: SystemTag
     severity: Severity
     summary: str
+    source: EventSource = EventSource.HUMAN
     ticket_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     status: TicketStatus = TicketStatus.OPEN
+
     level: SupportLevel = SupportLevel.L1
     escalated: bool = False
     resolved_by_auto: bool = False

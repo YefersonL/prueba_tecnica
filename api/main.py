@@ -43,6 +43,8 @@ from api.dependencies import (
 )
 from core.ingestion import normalize_event
 from core.metrics import compute_metrics
+from core.system_logger import log_event
+
 
 # ---------------------------------------------------------------------------
 # App
@@ -181,12 +183,16 @@ async def receive_google_chat_event(
     """
     try:
         payload = await request.json()
-    except Exception:
+    except Exception as exc:
+        log_event("ERROR", "WEBHOOK", f"Payload JSON inválido: {exc}")
         raise HTTPException(status_code=400, detail="Payload JSON inválido.")
+
+    log_event("INFO", "WEBHOOK", f"Petición recibida en {request.url.path}", {"keys": list(payload.keys())})
 
     # Evento de bienvenida al ser agregado a un espacio o DM en Google Chat
     event_type = payload.get("type", "")
     if event_type == "ADDED_TO_SPACE":
+        log_event("INFO", "WEBHOOK", "Evento ADDED_TO_SPACE recibido. Enviando mensaje de bienvenida.")
         welcome_text = (
             "👋 *¡Hola! Soy Fintech Support Bot*\n\n"
             "Estoy listo para recibir reportes de usuarios y alertas de sistemas en este chat.\n"
@@ -211,7 +217,14 @@ async def receive_google_chat_event(
     # 1. Normalizar
     try:
         event = normalize_event(payload)
+        log_event(
+            "SUCCESS",
+            "INGESTION",
+            f"Evento normalizado | Origen: {event.source.value.upper()} | Sender: {event.sender_id}",
+            {"message": event.message[:120], "space": event.space_id},
+        )
     except (KeyError, ValueError) as exc:
+        log_event("ERROR", "INGESTION", f"Error de normalización: {exc}", {"payload": str(payload)[:200]})
         raise HTTPException(status_code=422, detail=str(exc))
 
     # 2. Publicar en cola (desacopla ingesta del procesamiento)
@@ -220,10 +233,22 @@ async def receive_google_chat_event(
 
     # 3. Clasificar
     classification = classifier.classify(consumed)
+    log_event(
+        "INFO",
+        "CLASSIFIER",
+        f"Clasificado: {classification.severity.value} | Sistema: {classification.system.value} | Método: {classification.classified_by}",
+        {"is_duplicate": classification.is_duplicate},
+    )
 
     # 4. Motor de tickets
     engine_result = ticket_engine.process(consumed, classification)
     ticket = engine_result.ticket
+    log_event(
+        "SUCCESS",
+        "TICKET",
+        f"Ticket #{ticket.ticket_id[:8]} ({ticket.status.value}) | Nivel: {ticket.level.value} | Origen: {ticket.source.value.upper()}",
+        {"created": engine_result.created, "escalated": ticket.escalated},
+    )
 
     # 5. Intentar runbook (solo si es ticket nuevo, no duplicado)
     resolved_auto = False
@@ -232,6 +257,12 @@ async def receive_google_chat_event(
         rb_result = runbook_engine.try_auto_resolve(ticket)
         resolved_auto = rb_result.resolved
         runbook_name = rb_result.runbook_name
+        if resolved_auto:
+            log_event(
+                "SUCCESS",
+                "RUNBOOK",
+                f"Ticket #{ticket.ticket_id[:8]} auto-resuelto por '{runbook_name}'",
+            )
 
     # 6. ACK al chat (si no fue resuelto auto, la resolución la notifica el runbook)
     if not resolved_auto:
@@ -240,6 +271,7 @@ async def receive_google_chat_event(
     # Preparar mensaje de ACK para la respuesta
     last_msg = notifier.sent_messages[-1] if notifier.sent_messages else None
     ack_text = last_msg.text if last_msg else "Evento procesado."
+    log_event("SUCCESS", "CHAT_API", f"ACK enviado al chat: {ack_text[:80]}...")
 
     # Preservar el hilo de Google Chat para responder en el mismo hilo
     thread_info = None
@@ -263,6 +295,7 @@ async def receive_google_chat_event(
         text=ack_text,
         thread=thread_info,
     )
+
 
 
 
@@ -337,6 +370,7 @@ def list_tickets(
             "severity": t.severity.value,
             "status": t.status.value,
             "level": t.level.value,
+            "source": t.source.value if hasattr(t, "source") and t.source else "human",
             "escalated": t.escalated,
             "resolved_by_auto": t.resolved_by_auto,
             "resolved_by": t.resolved_by,
@@ -348,4 +382,28 @@ def list_tickets(
         }
         for t in tickets
     ]
+
+
+@app.get(
+    "/api/logs",
+    tags=["Sistema"],
+    summary="Obtener logs del sistema en tiempo real",
+)
+def get_system_logs(limit: int = 100) -> list[dict[str, Any]]:
+    """Retorna los logs recientes para visualización en tiempo real en el frontend."""
+    from core.system_logger import get_recent_logs
+    return get_recent_logs(limit=limit)
+
+
+@app.delete(
+    "/api/logs",
+    tags=["Sistema"],
+    summary="Limpiar logs del sistema",
+)
+def clear_system_logs() -> dict[str, str]:
+    """Limpia el buffer de logs en memoria."""
+    from core.system_logger import clear_logs
+    clear_logs()
+    return {"status": "ok", "message": "Logs limpiados"}
+
 

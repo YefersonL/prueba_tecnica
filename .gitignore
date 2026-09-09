@@ -37,4 +37,5 @@ htmlcov/
 credentials/
 *service_account*.json
 *.pem
-
+# Logs
+*.log

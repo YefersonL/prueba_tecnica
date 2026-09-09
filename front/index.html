@@ -48,7 +48,12 @@
           <span class="nav-icon">📈</span>
           <span class="nav-text">Métricas & SLAs</span>
         </button>
+        <button class="nav-item" data-tab="tab-logs">
+          <span class="nav-icon">📜</span>
+          <span class="nav-text">Logs en Vivo</span>
+        </button>
       </nav>
+
 
       <div class="sidebar-footer">
         <div class="status-card">
@@ -429,7 +434,29 @@
           </div>
         </div>
       </section>
+
+      <!-- VISTA LOGS EN VIVO -->
+      <section id="tab-logs" class="tab-pane">
+        <div class="card">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h3 class="card-title">📜 Consola de Logs del Sistema en Vivo</h3>
+              <p class="card-subtitle">Depura en tiempo real cada evento recibido de Google Chat, la clasificación de IA y los runbooks</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button id="btn-clear-logs" class="btn btn-secondary btn-sm">🗑️ Limpiar</button>
+              <button id="btn-refresh-logs" class="btn btn-primary btn-sm">🔄 Refrescar Logs</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="logs-console" style="background-color: #0b0f19; color: #f8fafc; font-family: monospace; font-size: 12px; padding: 16px; border-radius: 8px; max-height: 520px; overflow-y: auto; line-height: 1.6; border: 1px solid #1e293b;">
+              <div class="text-muted">Cargando registros...</div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
+
   </div>
 
   <!-- MODAL DE DETALLE DE TICKET (TIPO DRAWER BITRIX) -->

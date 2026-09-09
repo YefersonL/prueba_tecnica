@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSimulator();
   setupModal();
   setupGlobalActions();
+  setupLogActions();
 
   // Carga inicial
   fetchAllData();
@@ -76,7 +77,13 @@ function setupNavigation() {
       desc: 'Volumen por componente bancario e historial de cumplimiento',
       target: 'tab-metrics',
     },
+    'tab-logs': {
+      title: 'Consola de Logs del Sistema en Vivo',
+      desc: 'Depuración en tiempo real de peticiones, clasificación con IA y ejecución de runbooks',
+      target: 'tab-logs',
+    },
   };
+
 
   navButtons.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -134,9 +141,10 @@ function setupFilters() {
 // ---------------------------------------------------------------------------
 async function fetchAllData(isBackground = false) {
   try {
-    const [dashboardRes, ticketsRes] = await Promise.all([
+    const [dashboardRes, ticketsRes, logsRes] = await Promise.all([
       fetch('/dashboard'),
       fetch('/tickets'),
+      fetch('/api/logs?limit=100'),
     ]);
 
     if (dashboardRes.ok) {
@@ -151,12 +159,18 @@ async function fetchAllData(isBackground = false) {
       updateFilterCounts();
       renderTicketsTable();
     }
+
+    if (logsRes.ok) {
+      const logs = await logsRes.json();
+      renderLogs(logs);
+    }
   } catch (err) {
     if (!isBackground) {
       showToast('Error conectando con la API del servidor', 'error');
     }
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Renderizado de KPIs (Widgets Bitrix Style)
@@ -224,11 +238,9 @@ function renderTicketsTable() {
     if (state.activeFilter === 'p0' && ticket.severity !== 'P0') return false;
 
     // Filtro por Origen
-    const isBot = (ticket.source_event_id && ticket.source_event_id.includes('bot')) ||
-                  (ticket.resolved_by && ticket.resolved_by.startsWith('runbook:')) ||
-                  (ticket.system === 'ingestion' && ticket.resolved_by_auto);
-    if (state.activeSource === 'machine' && !isBot) return false;
-    if (state.activeSource === 'human' && isBot) return false;
+    const isMachine = (ticket.source === 'machine');
+    if (state.activeSource === 'machine' && !isMachine) return false;
+    if (state.activeSource === 'human' && isMachine) return false;
 
     // Búsqueda por texto
     if (state.searchTerm) {
@@ -253,13 +265,12 @@ function renderTicketsTable() {
   }
 
   tbody.innerHTML = filtered.map(t => {
-    const isMachine = (t.source_event_id && t.source_event_id.includes('bot')) ||
-                      t.resolved_by_auto ||
-                      (t.system === 'ingestion' && t.resolved_by_auto);
+    const isMachine = (t.source === 'machine');
 
     const sourceTag = isMachine
       ? `<span class="tag tag-machine">🤖 Máquina</span>`
       : `<span class="tag tag-human">👤 Humano</span>`;
+
 
     const sevClass = `tag-${t.severity.toLowerCase()}`;
     const levelClass = t.level === 'L2' ? 'level-l2' : 'level-l1';
@@ -626,3 +637,55 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.remove(), 300);
   }, 3500);
 }
+
+// ---------------------------------------------------------------------------
+// Consola de Logs en Vivo
+// ---------------------------------------------------------------------------
+function renderLogs(logs) {
+  const consoleEl = document.getElementById('logs-console');
+  if (!consoleEl) return;
+
+  if (!logs || logs.length === 0) {
+    consoleEl.innerHTML = '<div class="text-muted">Aún no hay eventos registrados en el log.</div>';
+    return;
+  }
+
+  consoleEl.innerHTML = logs.map(l => {
+    let color = '#38bdf8'; // info cyan
+    if (l.level === 'SUCCESS') color = '#4ade80'; // green
+    if (l.level === 'WARNING') color = '#fbbf24'; // yellow
+    if (l.level === 'ERROR') color = '#f87171'; // red
+
+    const detailsStr = l.details ? ` <span style="color: #94a3b8;">${escapeHtml(typeof l.details === 'object' ? JSON.stringify(l.details) : String(l.details))}</span>` : '';
+    return `<div style="margin-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px;">
+      <span style="color: #64748b;">[${l.time_str} UTC]</span>
+      <strong style="color: ${color}; padding: 1px 4px; border-radius: 3px; font-size: 11px;">[${l.category}]</strong>
+      <span style="color: #f1f5f9;">${escapeHtml(l.message)}</span>
+      ${detailsStr}
+    </div>`;
+  }).join('');
+}
+
+function setupLogActions() {
+  const clearBtn = document.getElementById('btn-clear-logs');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async () => {
+      await fetch('/api/logs', { method: 'DELETE' });
+      const consoleEl = document.getElementById('logs-console');
+      if (consoleEl) consoleEl.innerHTML = '<div class="text-muted">Logs limpiados.</div>';
+      showToast('Logs limpiados', 'info');
+    });
+  }
+
+  const refreshBtn = document.getElementById('btn-refresh-logs');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      const res = await fetch('/api/logs?limit=100');
+      if (res.ok) {
+        renderLogs(await res.json());
+        showToast('Logs actualizados', 'info');
+      }
+    });
+  }
+}
+
