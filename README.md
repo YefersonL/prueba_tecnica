@@ -42,6 +42,38 @@ La lógica de negocio en `core/` **depende únicamente de interfaces** (los `Pro
 | `LocalChatNotifier` | `GoogleChatAPINotifier` | Google Chat REST API |
 | `ManualSLAJob` (función) | Cloud Scheduler + Cloud Run Job | Cloud Scheduler |
 
+## Matriz de SLAs y Tiempos de Respuesta
+
+El sistema implementa una política estricta de SLAs diseñada para operaciones críticas fintech, equilibrando velocidad de respuesta humana/automática con escalamiento preventivo ante inactividad:
+
+| Severidad | Nivel Inicial | Tiempo 1ª Respuesta (ACK) | Límite Estancamiento (`is_stale`) | Límite Máximo de Resolución (`sla_deadline`) | Acción al Vencer / Estancarse |
+|---|:---:|:---:|:---:|:---:|---|
+| **P0 (Crítico)** | **L2** (Senior / SRE) | Inmediata (&le; 15 min) | N/A (Asignado directo a L2) | **1 hora** | Alerta roja en Chat + Escalado a Guardia SRE |
+| **P1 (Alto)** | **L1** | Inmediata (&le; 30 min) | **45 minutos** sin `updated_at` | **4 horas** | Escala automático de L1 a **L2** + Notificación |
+| **P2 (Medio)** | **L1** | &le; 2 horas | **4 horas** sin `updated_at` | **24 horas** (1 día) | Escala automático de L1 a **L2** + Notificación |
+| **P3 (Bajo)** | **L1** | &le; 4 horas | Sin escalamiento automático | **72 horas** (3 días) | Permanece en L1 hasta cierre o priorización |
+
+---
+
+### Mecánica del Job de SLA (`core/sla_job.py`)
+
+El job de evaluación periódica (diseñado para ejecutarse cada 5 minutos mediante **Cloud Scheduler** en GCP o vía `POST /sla/run`) recorre todos los tickets abiertos y ejecuta dos reglas deterministas basadas en timestamps UTC:
+
+1. **Detección de Vencimiento (`is_overdue`)**:
+   - Se evalúa contra el límite de resolución global del ticket:
+     $$\text{is\_overdue} \iff \text{now}() > \text{ticket.sla\_deadline} \quad \wedge \quad \text{ticket.status} \notin \{\text{RESOLVED}, \text{CLOSED}\}$$
+   - Si el ticket venció y permanece en L1, el job ejecuta `ticket.escalate_to_l2(reason="SLA vencido...")` y despacha un mensaje de alerta roja al espacio de Google Chat mediante `ChatNotifier`.
+
+2. **Detección de Estancamiento (`is_stale`)**:
+   - Evita que incidencias queden olvidadas en la cola sin interacción humana, monitoreando la última marca de tiempo de actividad:
+     $$\Delta t = \text{now}() - \text{ticket.updated\_at}$$
+   - Si $\Delta t > \text{threshold}$ (45 min para P1, 4 horas para P2) y el ticket aún está en L1, el job lo detecta como candidato a escalamiento proactivo.
+   - Escala el ticket a L2 **antes de que venza el SLA definitivo**, permitiendo que un ingeniero senior intervenga a tiempo.
+
+3. **Garantía de Idempotencia y Actualización de Estado**:
+   - Cada transición o comentario de agente invoca `ticket.touch()`, renovando `updated_at = datetime.now(UTC)` y reiniciando la ventana de estancamiento.
+   - El job no re-escala tickets que ya alcanzaron el nivel L2 (`ticket.level == SupportLevel.L2`).
+
 ---
 
 ## Qué está mockeado y por qué
