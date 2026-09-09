@@ -456,3 +456,105 @@ class TestSQLiteTicketRepository:
         ids = [t.ticket_id for t in all_tickets]
         assert t1.ticket_id in ids
         assert t2.ticket_id in ids
+
+    def test_add_and_get_comments(self, repo: SQLiteTicketRepository) -> None:
+        """Los comentarios asociados a un ticket deben persistirse y recuperarse en orden."""
+        from core.models import TicketComment
+        ticket = self._make_ticket()
+        repo.save(ticket)
+
+        c1 = TicketComment(
+            content="Primer seguimiento",
+            author="Agente 1",
+            ticket_id=ticket.ticket_id,
+        )
+        c2 = TicketComment(
+            content="Esperando respuesta del cliente",
+            author="Agente 2",
+            ticket_id=ticket.ticket_id,
+            new_status=TicketStatus.WAITING_USER,
+        )
+        repo.add_comment(c1)
+        repo.add_comment(c2)
+
+        comments = repo.get_comments(ticket.ticket_id)
+        assert len(comments) == 2
+        assert comments[0].content == "Primer seguimiento"
+        assert comments[1].new_status == TicketStatus.WAITING_USER
+
+        # Al recuperar el ticket, sus comentarios deben estar cargados
+        retrieved = repo.get_by_id(ticket.ticket_id)
+        assert retrieved is not None
+        assert len(retrieved.comments) == 2
+
+
+class TestTicketComments:
+    """Pruebas para agregar_comentario en TicketEngine."""
+
+    @pytest.fixture
+    def engine_and_repo(self):
+        from adapters.memory_repo import InMemoryTicketRepository
+        repo = InMemoryTicketRepository()
+        engine = TicketEngine(repo=repo)
+        return engine, repo
+
+    def test_agregar_comentario_default_transition(self, engine_and_repo):
+        engine, repo = engine_and_repo
+        ticket = Ticket(
+            ticket_id="tk-test-1",
+            source_event_id="ev-1",
+            space_id="spaces/test",
+            system=SystemTag.PAYMENTS,
+            severity=Severity.P1,
+            summary="Problema de pago",
+            status=TicketStatus.OPEN,
+            requester_id="users/123",
+        )
+        repo.save(ticket)
+
+        updated, comment = engine.agregar_comentario(
+            ticket_id="tk-test-1",
+            comentario="Revisando los logs de transacción",
+            actor="Agente Ana",
+        )
+
+        assert updated.status == TicketStatus.IN_PROGRESS
+        assert len(updated.comments) == 1
+        assert updated.comments[0].author == "Agente Ana"
+        assert updated.comments[0].content == "Revisando los logs de transacción"
+        assert comment.content == "Revisando los logs de transacción"
+
+    def test_agregar_comentario_explicit_status(self, engine_and_repo):
+        engine, repo = engine_and_repo
+        ticket = Ticket(
+            ticket_id="tk-test-2",
+            source_event_id="ev-2",
+            space_id="spaces/test",
+            system=SystemTag.AUTH,
+            severity=Severity.P2,
+            summary="No puede loguear",
+            status=TicketStatus.OPEN,
+        )
+        repo.save(ticket)
+
+        updated, comment = engine.agregar_comentario(
+            ticket_id="tk-test-2",
+            comentario="¿Podrías confirmar tu correo electrónico?",
+            actor="Agente Carlos",
+            nuevo_estado=TicketStatus.WAITING_USER,
+        )
+
+        assert updated.status == TicketStatus.WAITING_USER
+        assert updated.comments[0].new_status == TicketStatus.WAITING_USER
+        assert comment.new_status == TicketStatus.WAITING_USER
+
+    def test_agregar_comentario_empty_raises(self, engine_and_repo):
+        engine, repo = engine_and_repo
+        with pytest.raises(ValueError, match="no puede estar vacío"):
+            engine.agregar_comentario("any-id", "   ", "Agente")
+
+    def test_agregar_comentario_not_found_raises(self, engine_and_repo):
+        engine, repo = engine_and_repo
+        with pytest.raises(ValueError, match="No se encontr"):
+            engine.agregar_comentario("non-existent", "Seguimiento", "Agente")
+

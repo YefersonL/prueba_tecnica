@@ -44,6 +44,7 @@ from core.models import (
     SupportLevel,
     SystemTag,
     Ticket,
+    TicketComment,
     TicketStatus,
 )
 from core.ports import TicketRepository
@@ -120,8 +121,14 @@ class TicketEngine:
     Stateless entre llamadas (toda la persistencia va al repo).
     """
 
-    def __init__(self, ticket_repo: TicketRepository) -> None:
-        self._repo = ticket_repo
+    def __init__(
+        self,
+        ticket_repo: TicketRepository | None = None,
+        repo: TicketRepository | None = None,
+    ) -> None:
+        self._repo = ticket_repo or repo
+        if not self._repo:
+            raise ValueError("ticket_repo is required")
 
     def process(
         self, event: RawEvent, classification: ClassificationResult
@@ -157,6 +164,7 @@ class TicketEngine:
             severity=classification.severity,
             summary=classification.summary,
             source=event.source,
+            requester_id=event.sender_id,
             level=level,
             created_at=now,
             updated_at=now,
@@ -238,6 +246,64 @@ class TicketEngine:
         ticket.touch()
         self._repo.save(ticket)
         return ticket
+
+    def agregar_comentario(
+        self,
+        ticket_id: str,
+        comentario: str,
+        actor: str,
+        nuevo_estado: Optional[TicketStatus] = None,
+    ) -> tuple[Ticket, TicketComment]:
+        """
+        Registra un comentario de seguimiento y transiciona el estado del ticket automáticamente.
+
+        Parámetros
+        ----------
+        ticket_id    : ID del ticket al que se agregará el comentario.
+        comentario   : Texto del seguimiento o mensaje para el usuario.
+        actor        : Nombre del agente, usuario o sistema que comenta (ej. 'Agente Carlos').
+        nuevo_estado : Estado al que debe transicionar el ticket (ej. IN_PROGRESS, WAITING_USER).
+                       Si es None, conserva el estado actual.
+
+        Retorna
+        -------
+        Tupla (ticket_actualizado, comentario_creado).
+
+        Lanza
+        -----
+        ValueError: Si el ticket no existe o el comentario está vacío.
+        """
+        comentario_limpio = (comentario or "").strip()
+        if not comentario_limpio:
+            raise ValueError("El comentario no puede estar vacío.")
+
+        ticket = self._repo.get_by_id(ticket_id)
+        if not ticket:
+            raise ValueError(f"No se encontró el ticket con ID '{ticket_id}'.")
+
+        if nuevo_estado is not None:
+            ticket.status = nuevo_estado
+            if nuevo_estado in (TicketStatus.RESOLVED, TicketStatus.CLOSED) and not ticket.resolved_at:
+                ticket.resolved_at = datetime.now(UTC)
+                ticket.resolved_by = actor
+        elif ticket.status == TicketStatus.OPEN:
+            ticket.status = TicketStatus.IN_PROGRESS
+
+        ticket.touch()
+
+        comment = TicketComment(
+            ticket_id=ticket_id,
+            author=actor.strip() or "Agente",
+            content=comentario_limpio,
+            created_at=ticket.updated_at,
+            new_status=ticket.status,
+        )
+
+        ticket.comments.append(comment)
+        self._repo.save(ticket)
+        self._repo.add_comment(comment)
+
+        return ticket, comment
 
     def get_escalation_candidates(self, now: Optional[datetime] = None) -> list[Ticket]:
         """

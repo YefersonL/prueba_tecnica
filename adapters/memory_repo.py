@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from core.models import SystemTag, Ticket, TicketStatus
+from core.models import SystemTag, Ticket, TicketComment, TicketStatus
 
 
 class InMemoryTicketRepository:
@@ -28,26 +28,53 @@ class InMemoryTicketRepository:
 
     def __init__(self) -> None:
         self._store: dict[str, Ticket] = {}
+        self._comments: dict[str, list[TicketComment]] = {}
 
     def save(self, ticket: Ticket) -> None:
         """Upsert — crea o sobreescribe el ticket con el mismo ticket_id."""
         self._store[ticket.ticket_id] = ticket
 
+    def add_comment(self, comment: TicketComment) -> None:
+        """Agrega un comentario al historial del ticket en memoria."""
+        if comment.ticket_id not in self._comments:
+            self._comments[comment.ticket_id] = []
+        self._comments[comment.ticket_id].append(comment)
+        if comment.ticket_id in self._store:
+            ticket = self._store[comment.ticket_id]
+            if not any(c.comment_id == comment.comment_id for c in ticket.comments):
+                ticket.comments.append(comment)
+
+    def get_comments(self, ticket_id: str) -> list[TicketComment]:
+        """Obtiene la lista de comentarios de un ticket."""
+        return list(self._comments.get(ticket_id, []))
+
     def get_by_id(self, ticket_id: str) -> Optional[Ticket]:
-        return self._store.get(ticket_id)
+        ticket = self._store.get(ticket_id)
+        if ticket:
+            ticket.comments = self.get_comments(ticket_id)
+        return ticket
 
     def find_open_by_system(self, system: SystemTag) -> list[Ticket]:
         """Retorna tickets no resueltos/cerrados del sistema dado."""
         closed = {TicketStatus.RESOLVED, TicketStatus.CLOSED}
-        return [
+        tickets = [
             t for t in self._store.values()
             if t.system == system and t.status not in closed
         ]
+        for t in tickets:
+            t.comments = self.get_comments(t.ticket_id)
+        return tickets
 
     def list_open(self) -> list[Ticket]:
         """Retorna todos los tickets no resueltos/cerrados."""
         closed = {TicketStatus.RESOLVED, TicketStatus.CLOSED}
-        return [t for t in self._store.values() if t.status not in closed]
+        tickets = [t for t in self._store.values() if t.status not in closed]
+        for t in tickets:
+            t.comments = self.get_comments(t.ticket_id)
+        return tickets
 
     def list_all(self) -> list[Ticket]:
-        return list(self._store.values())
+        tickets = list(self._store.values())
+        for t in tickets:
+            t.comments = self.get_comments(t.ticket_id)
+        return tickets

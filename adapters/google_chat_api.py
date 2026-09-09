@@ -188,3 +188,14 @@ class GoogleChatApiNotifier(LocalChatNotifier):
         super().send_resolution(ticket)
         last_msg = self.sent_messages[-1]
         self._send_to_google_chat(ticket.space_id, last_msg.text, thread_name=None)
+
+    def send_comment_notification(
+        self,
+        ticket: Ticket,
+        comment: str,
+        actor: str,
+        requester_id: Optional[str] = None,
+    ) -> None:
+        super().send_comment_notification(ticket, comment, actor, requester_id)
+        last_msg = self.sent_messages[-1]
+        self._send_to_google_chat(ticket.space_id, last_msg.text, thread_name=None)

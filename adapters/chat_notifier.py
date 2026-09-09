@@ -153,6 +153,40 @@ class LocalChatNotifier:
             message_type="resolution",
         )
 
+    def send_comment_notification(
+        self,
+        ticket: Ticket,
+        comment: str,
+        actor: str,
+        requester_id: Optional[str] = None,
+    ) -> None:
+        """
+        Notifica la adición de un comentario de seguimiento, mencionando
+        al usuario original si se conoce su requester_id.
+        """
+        req_id = requester_id or getattr(ticket, "requester_id", None)
+        mention_str = ""
+        if req_id:
+            user_tag = req_id if req_id.startswith("users/") else f"users/{req_id}"
+            mention_str = f"<{user_tag}> "
+
+        text = (
+            f"💬 *Nuevo comentario en Ticket #{ticket.ticket_id[:8]}*\n"
+            f"{mention_str}*{actor}* ha agregado una actualización:\n"
+            f"\"{comment}\"\n"
+            f"• Estado: *{ticket.status.value}* | Nivel: *{ticket.level.value}*"
+        )
+        payload = {
+            "text": text,
+            "thread": {"name": f"{ticket.space_id}/threads/{ticket.ticket_id}"},
+        }
+        self._record(
+            space_id=ticket.space_id,
+            text=text,
+            payload=payload,
+            message_type="comment",
+        )
+
     def _record(
         self,
         space_id: str,

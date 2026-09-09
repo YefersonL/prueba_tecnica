@@ -50,6 +50,7 @@ class TicketStatus(str, Enum):
 
     OPEN = "open"
     IN_PROGRESS = "in_progress"
+    WAITING_USER = "waiting_user"
     ESCALATED = "escalated"
     RESOLVED = "resolved"
     CLOSED = "closed"
@@ -112,6 +113,34 @@ class RawEvent:
 
 
 # ---------------------------------------------------------------------------
+# TicketComment — seguimiento y comunicación en el ticket
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TicketComment:
+    """
+    Comentario de seguimiento asociado a un ticket.
+
+    Campos
+    ------
+    comment_id : UUID único del comentario.
+    ticket_id  : ID del ticket asociado.
+    author     : Autor del comentario (ej. 'Agente Carlos', 'Sistema', 'Usuario').
+    content    : Contenido del mensaje de seguimiento.
+    created_at : Timestamp UTC de registro.
+    new_status : Estado al que transicionó el ticket con este comentario (opcional).
+    """
+
+    content: str
+    author: str
+    ticket_id: str
+    comment_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    new_status: Optional[TicketStatus] = None
+
+
+# ---------------------------------------------------------------------------
 # Ticket — entidad central del sistema de soporte
 # ---------------------------------------------------------------------------
 
@@ -135,6 +164,9 @@ class Ticket:
     status          : Estado en el ciclo de vida.
     level           : Nivel de soporte actual (L1 / L2).
     summary         : Resumen generado por el clasificador.
+    source          : Origen HUMAN o MACHINE.
+    requester_id    : ID del usuario/remitente original en Google Chat.
+    comments        : Lista de comentarios y notas de seguimiento.
     escalated       : True si fue escalado a L2 en algún momento.
     resolved_by_auto: True si fue resuelto sin intervención humana (runbook).
     resolved_by     : ID de usuario/sistema que cerró el ticket (opcional).
@@ -153,6 +185,7 @@ class Ticket:
     severity: Severity
     summary: str
     source: EventSource = EventSource.HUMAN
+    requester_id: Optional[str] = None
     ticket_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     status: TicketStatus = TicketStatus.OPEN
 
@@ -160,6 +193,7 @@ class Ticket:
     escalated: bool = False
     resolved_by_auto: bool = False
     resolved_by: Optional[str] = None
+    comments: list[TicketComment] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     sla_deadline: Optional[datetime] = None

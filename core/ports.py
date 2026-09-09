@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Optional, Protocol, runtime_checkable
 
-from core.models import RawEvent, Severity, SystemTag, Ticket
+from core.models import RawEvent, Severity, SystemTag, Ticket, TicketComment
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +106,14 @@ class TicketRepository(Protocol):
         """
         ...
 
+    def add_comment(self, comment: TicketComment) -> None:
+        """Registra y persiste un comentario asociado a un ticket."""
+        ...
+
+    def get_comments(self, ticket_id: str) -> list[TicketComment]:
+        """Recupera el historial cronológico de comentarios de un ticket."""
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Puerto 3: LLMClient
@@ -185,5 +193,18 @@ class ChatNotifier(Protocol):
         """
         Notifica el cierre del ticket con un resumen de la resolución.
         Incluye tiempo total de resolución y si fue automático o manual.
+        """
+        ...
+
+    def send_comment_notification(
+        self,
+        ticket: Ticket,
+        comment: str,
+        actor: str,
+        requester_id: Optional[str] = None,
+    ) -> None:
+        """
+        Notifica la adición de un comentario de seguimiento hacia Google Chat,
+        mencionando al usuario solicitante si se encuentra disponible.
         """
         ...
