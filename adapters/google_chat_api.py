@@ -128,30 +128,63 @@ class GoogleChatApiNotifier(LocalChatNotifier):
             resp = requests.post(url, headers=headers, json=payload, params=params, timeout=10.0)
             if resp.status_code in (200, 201):
                 logger.info(f"[GoogleChatApiNotifier] Mensaje enviado a {space_id}: {resp.status_code}")
+                try:
+                    from core.system_logger import log_event
+                    log_event("SUCCESS", "CHAT_API_REST", f"Mensaje publicado exitosamente en Google Chat ({space_id})")
+                except Exception:
+                    pass
                 return True
             else:
                 logger.warning(
                     f"[GoogleChatApiNotifier] Google Chat API respondió {resp.status_code}: {resp.text}"
                 )
+                try:
+                    from core.system_logger import log_event
+                    log_event("WARNING", "CHAT_API_REST", f"Google Chat API {resp.status_code}: {resp.text[:120]}")
+                except Exception:
+                    pass
                 return False
         except Exception as exc:
             logger.error(f"[GoogleChatApiNotifier] Error de red enviando a Google Chat: {exc}")
+            try:
+                from core.system_logger import log_event
+                log_event("ERROR", "CHAT_API_REST", f"Error de red hacia Google Chat: {exc}")
+            except Exception:
+                pass
             return False
+
+    def _extract_real_thread_name(self, event: RawEvent | None) -> str | None:
+        """Extrae el nombre de hilo real de Google Chat si viene en el payload."""
+        if not event or not event.raw_payload:
+            return None
+        # Formato Workspace Add-on
+        chat = event.raw_payload.get("chat", {})
+        if isinstance(chat, dict):
+            msg = chat.get("messagePayload", {}).get("message", {})
+            if isinstance(msg, dict) and "thread" in msg and isinstance(msg["thread"], dict):
+                t_name = msg["thread"].get("name")
+                if t_name and isinstance(t_name, str) and t_name.startswith("spaces/"):
+                    return t_name
+        # Formato clásico
+        msg = event.raw_payload.get("message", {})
+        if isinstance(msg, dict) and "thread" in msg and isinstance(msg["thread"], dict):
+            t_name = msg["thread"].get("name")
+            if t_name and isinstance(t_name, str) and t_name.startswith("spaces/"):
+                return t_name
+        return None
 
     def send_ack(self, event: RawEvent, ticket: Ticket) -> None:
         super().send_ack(event, ticket)
-        thread_name = f"{event.space_id}/threads/{ticket.ticket_id}" if event.space_id else None
+        thread_name = self._extract_real_thread_name(event)
         last_msg = self.sent_messages[-1]
         self._send_to_google_chat(event.space_id, last_msg.text, thread_name=thread_name)
 
     def send_status_update(self, ticket: Ticket, message: str) -> None:
         super().send_status_update(ticket, message)
-        thread_name = f"{ticket.space_id}/threads/{ticket.ticket_id}" if ticket.space_id else None
         last_msg = self.sent_messages[-1]
-        self._send_to_google_chat(ticket.space_id, last_msg.text, thread_name=thread_name)
+        self._send_to_google_chat(ticket.space_id, last_msg.text, thread_name=None)
 
     def send_resolution(self, ticket: Ticket) -> None:
         super().send_resolution(ticket)
-        thread_name = f"{ticket.space_id}/threads/{ticket.ticket_id}" if ticket.space_id else None
         last_msg = self.sent_messages[-1]
-        self._send_to_google_chat(ticket.space_id, last_msg.text, thread_name=thread_name)
+        self._send_to_google_chat(ticket.space_id, last_msg.text, thread_name=None)

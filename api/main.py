@@ -213,8 +213,15 @@ async def receive_google_chat_event(
         if is_workspace_addon:
             return JSONResponse(
                 content={
-                    "actionResponse": {"type": "NEW_MESSAGE"},
-                    "text": welcome_text,
+                    "hostAppDataAction": {
+                        "chatDataAction": {
+                            "createMessageAction": {
+                                "message": {
+                                    "text": welcome_text,
+                                }
+                            }
+                        }
+                    }
                 }
             )
         return WebhookResponse(
@@ -303,14 +310,19 @@ async def receive_google_chat_event(
         log_event(
             "SUCCESS",
             "CHAT_API",
-            "Respuesta para Google Workspace Add-on enviada (actionResponse: NEW_MESSAGE + text)",
+            "Respuesta para Google Workspace Add-on enviada (hostAppDataAction.createMessageAction)",
         )
         return JSONResponse(
             content={
-                "actionResponse": {
-                    "type": "NEW_MESSAGE",
-                },
-                "text": ack_text,
+                "hostAppDataAction": {
+                    "chatDataAction": {
+                        "createMessageAction": {
+                            "message": {
+                                "text": ack_text,
+                            }
+                        }
+                    }
+                }
             }
         )
 

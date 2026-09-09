@@ -361,11 +361,11 @@ class TestWebhookEndpoint:
         resp = client.post("/webhook/google-chat", json=payload)
         assert resp.status_code == 200
         data = resp.json()
-        # Google Workspace Add-on exige actionResponse.type == NEW_MESSAGE
-        assert "actionResponse" in data
-        assert data["actionResponse"]["type"] == "NEW_MESSAGE"
-        assert "text" in data
-        assert "Ticket" in data["text"]
+        # Google Workspace Add-on exige envoltorio hostAppDataAction
+        assert "hostAppDataAction" in data
+        create_action = data["hostAppDataAction"]["chatDataAction"]["createMessageAction"]
+        assert "message" in create_action
+        assert "Ticket" in create_action["message"]["text"]
         # No debe contener campos internos no soportados por el Add-on
         assert "ticket_id" not in data
 
@@ -379,8 +379,8 @@ class TestWebhookEndpoint:
         resp = client.post("/webhook/google-chat", json=payload)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["actionResponse"]["type"] == "NEW_MESSAGE"
-        assert "¡Hola!" in data["text"]
+        create_action = data["hostAppDataAction"]["chatDataAction"]["createMessageAction"]
+        assert "¡Hola!" in create_action["message"]["text"]
 
 
 class TestSLAJobEndpoint:
