@@ -134,17 +134,31 @@ def health_check() -> dict[str, str]:
     return {"status": "ok", "timestamp": datetime.now(UTC).isoformat()}
 
 
+@app.get("/webhook/google-chat", tags=["Ingesta"], include_in_schema=False)
+@app.get("/webhook", tags=["Ingesta"], include_in_schema=False)
+@app.get("/webhook/", tags=["Ingesta"], include_in_schema=False)
+def webhook_health() -> dict[str, str]:
+    """Endpoint de verificación para Google Cloud Console."""
+    return {"status": "ok", "message": "Google Chat webhook is ready"}
+
+
 @app.post(
     "/webhook/google-chat",
     response_model=WebhookResponse,
     tags=["Ingesta"],
     summary="Recibir evento de Google Chat",
-    description=(
-        "Endpoint que simula el webhook de Google Chat. "
-        "Recibe un payload JSON, normaliza el evento, lo clasifica, "
-        "crea o agrupa un ticket, intenta resolución automática via runbook, "
-        "y retorna el ACK con los detalles del ticket."
-    ),
+)
+@app.post(
+    "/webhook",
+    response_model=WebhookResponse,
+    tags=["Ingesta"],
+    include_in_schema=False,
+)
+@app.post(
+    "/webhook/",
+    response_model=WebhookResponse,
+    tags=["Ingesta"],
+    include_in_schema=False,
 )
 async def receive_google_chat_event(
     request: Request,
