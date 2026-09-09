@@ -124,6 +124,18 @@ class DashboardResponse(BaseModel):
     volume_by_system: dict[str, int]
     open_by_severity: dict[str, int]
     sla_breaches: list[dict]
+    mttr_by_severity: dict[str, float | None] = {}
+    recurrent_systems: list[dict[str, Any]] = []
+    volume_by_hour: dict[str, int] = {}
+
+
+class CommentRequest(BaseModel):
+    """Payload para agregar un comentario a un ticket."""
+
+    author: str
+    comment: str
+    new_status: str | None = None
+
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +407,9 @@ def get_dashboard(
         volume_by_system=metrics.volume_by_system,
         open_by_severity=metrics.open_by_severity,
         sla_breaches=metrics.sla_breaches,
+        mttr_by_severity=metrics.mttr_by_severity,
+        recurrent_systems=metrics.recurrent_systems,
+        volume_by_hour=metrics.volume_by_hour,
     )
 
 
@@ -402,12 +417,12 @@ def get_dashboard(
     "/tickets",
     tags=["Tickets"],
     summary="Listar todos los tickets",
-    description="Retorna la lista completa de tickets. Útil para debugging.",
+    description="Retorna la lista completa de tickets con comentarios y metadata.",
 )
 def list_tickets(
     repo=Depends(get_ticket_repo),
 ) -> list[dict[str, Any]]:
-    """Lista todos los tickets con sus campos principales."""
+    """Lista todos los tickets con sus campos principales y comentarios."""
     tickets = repo.list_all()
     return [
         {
@@ -417,17 +432,148 @@ def list_tickets(
             "status": t.status.value,
             "level": t.level.value,
             "source": t.source.value if hasattr(t, "source") and t.source else "human",
+            "requester_id": getattr(t, "requester_id", None),
             "escalated": t.escalated,
             "resolved_by_auto": t.resolved_by_auto,
             "resolved_by": t.resolved_by,
             "space_id": t.space_id,
             "source_event_id": t.source_event_id,
             "created_at": t.created_at.isoformat() if t.created_at else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "sla_deadline": t.sla_deadline.isoformat() if t.sla_deadline else None,
+            "resolved_at": t.resolved_at.isoformat() if t.resolved_at else None,
             "summary": t.summary,
+            "comments": [
+                {
+                    "comment_id": c.comment_id,
+                    "author": c.author,
+                    "content": c.content,
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
+                    "new_status": c.new_status.value if c.new_status else None,
+                }
+                for c in getattr(t, "comments", [])
+            ],
         }
         for t in tickets
     ]
+
+
+@app.get(
+    "/tickets/{ticket_id}",
+    tags=["Tickets"],
+    summary="Obtener detalle de un ticket",
+)
+def get_ticket(
+    ticket_id: str,
+    repo=Depends(get_ticket_repo),
+) -> dict[str, Any]:
+    """Obtiene el detalle completo de un ticket por su ID."""
+    ticket = repo.get_by_id(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    return {
+        "ticket_id": ticket.ticket_id,
+        "system": ticket.system.value,
+        "severity": ticket.severity.value,
+        "status": ticket.status.value,
+        "level": ticket.level.value,
+        "source": ticket.source.value if hasattr(ticket, "source") and ticket.source else "human",
+        "requester_id": getattr(ticket, "requester_id", None),
+        "escalated": ticket.escalated,
+        "resolved_by_auto": ticket.resolved_by_auto,
+        "resolved_by": ticket.resolved_by,
+        "space_id": ticket.space_id,
+        "source_event_id": ticket.source_event_id,
+        "created_at": ticket.created_at.isoformat() if ticket.created_at else None,
+        "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
+        "sla_deadline": ticket.sla_deadline.isoformat() if ticket.sla_deadline else None,
+        "resolved_at": ticket.resolved_at.isoformat() if ticket.resolved_at else None,
+        "summary": ticket.summary,
+        "comments": [
+            {
+                "comment_id": c.comment_id,
+                "author": c.author,
+                "content": c.content,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "new_status": c.new_status.value if c.new_status else None,
+            }
+            for c in getattr(ticket, "comments", [])
+        ],
+    }
+
+
+@app.post(
+    "/tickets/{ticket_id}/comments",
+    tags=["Tickets"],
+    summary="Agregar un comentario de seguimiento a un ticket",
+)
+def add_ticket_comment(
+    ticket_id: str,
+    payload: CommentRequest,
+    ticket_engine=Depends(get_ticket_engine),
+    notifier=Depends(get_notifier),
+) -> dict[str, Any]:
+    """
+    Agrega un comentario a un ticket, transiciona su estado opcionalmente
+    (ej. de OPEN a IN_PROGRESS o WAITING_USER) y envía una notificación
+    a Google Chat mencionando al solicitante original si aplica.
+    """
+    from core.models import TicketStatus
+
+    status_enum = None
+    if payload.new_status:
+        try:
+            status_enum = TicketStatus(payload.new_status.lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Estado inválido '{payload.new_status}'. Valores válidos: {[s.value for s in TicketStatus]}",
+            )
+
+    try:
+        ticket, comment = ticket_engine.agregar_comentario(
+            ticket_id=ticket_id,
+            comentario=payload.comment,
+            actor=payload.author,
+            nuevo_estado=status_enum,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    # Notificación al chat con mención
+    try:
+        notifier.send_comment_notification(
+            ticket=ticket,
+            comment=payload.comment,
+            actor=payload.author,
+            requester_id=ticket.requester_id,
+        )
+    except Exception as exc:
+        log_event("WARNING", "CHAT_NOTIFIER", f"No se pudo enviar notificación de comentario: {exc}")
+
+    log_event(
+        "SUCCESS",
+        "TICKET_COMMENT",
+        f"Comentario agregado al ticket #{ticket_id[:8]} por {payload.author}",
+        {"new_status": ticket.status.value, "comments_count": len(ticket.comments)},
+    )
+
+    return {
+        "status": "ok",
+        "ticket_id": ticket.ticket_id,
+        "new_status": ticket.status.value,
+        "comments_count": len(ticket.comments),
+        "comments": [
+            {
+                "comment_id": c.comment_id,
+                "author": c.author,
+                "content": c.content,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "new_status": c.new_status.value if c.new_status else None,
+            }
+            for c in ticket.comments
+        ],
+    }
 
 
 @app.get(

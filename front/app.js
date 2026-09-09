@@ -316,32 +316,90 @@ function renderTicketsTable() {
 function renderMetricsTab(metrics) {
   if (!metrics) return;
 
-  // 1. Barras de volumen por sistema
-  const container = document.getElementById('system-bars-container');
-  const volume = metrics.volume_by_system || {};
-  const entries = Object.entries(volume);
-  const maxVal = Math.max(...entries.map(([, val]) => val), 1);
+  // 1. MTTR por Severidad
+  const mttr = metrics.mttr_by_severity || {};
+  ['p0', 'p1', 'p2', 'p3'].forEach(k => {
+    const el = document.getElementById(`mttr-${k}`);
+    if (el) {
+      const val = mttr[k.toUpperCase()];
+      el.textContent = val !== null && val !== undefined ? `${val} min` : '--';
+    }
+  });
 
-  if (entries.length === 0) {
-    container.innerHTML = '<div class="text-muted">Aún no hay datos de volumen.</div>';
-  } else {
-    container.innerHTML = entries.map(([sys, count]) => {
-      const pct = Math.round((count / maxVal) * 100);
+  // 2. Sistemas con incidentes recurrentes
+  const recTbody = document.getElementById('recurrent-systems-tbody');
+  if (recTbody) {
+    const list = metrics.recurrent_systems || [];
+    if (list.length === 0) {
+      recTbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Sin incidentes registrados aún.</td></tr>';
+    } else {
+      recTbody.innerHTML = list.map(item => {
+        let riskBadge = '<span class="tag tag-p3">Bajo</span>';
+        if (item.p0_p1_count >= 2 || item.total_incidents >= 5) {
+          riskBadge = '<span class="tag tag-p0">Alto Riesgo</span>';
+        } else if (item.p0_p1_count >= 1 || item.total_incidents >= 2) {
+          riskBadge = '<span class="tag tag-p1">Medio</span>';
+        }
+        return `
+          <tr>
+            <td><span class="tag tag-system">${item.system}</span></td>
+            <td><strong>${item.total_incidents}</strong></td>
+            <td><span class="tag ${item.p0_p1_count > 0 ? 'tag-p0' : 'text-muted'}">${item.p0_p1_count}</span></td>
+            <td><span class="badge ${item.open_count > 0 ? 'status-open' : 'status-resolved'}">${item.open_count}</span></td>
+            <td>${riskBadge}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // 3. Picos de volumen por hora (24 Horas)
+  const hourlyContainer = document.getElementById('hourly-bars-container');
+  if (hourlyContainer) {
+    const hours = metrics.volume_by_hour || {};
+    const hourEntries = Object.entries(hours);
+    const maxHourly = Math.max(...hourEntries.map(([, v]) => v), 1);
+    hourlyContainer.innerHTML = hourEntries.map(([hr, count]) => {
+      const heightPct = count > 0 ? Math.max(Math.round((count / maxHourly) * 100), 10) : 4;
+      const isPeak = count === maxHourly && count > 0;
+      const bg = isPeak ? '#ef4444' : (count > 0 ? '#3b82f6' : '#1e293b');
       return `
-        <div class="sys-bar-row">
-          <div class="sys-bar-meta">
-            <span><code>${sys.toUpperCase()}</code></span>
-            <span><strong>${count}</strong> casos (${Math.round((count / metrics.total_tickets) * 100 || 0)}%)</span>
-          </div>
-          <div class="sys-bar-track">
-            <div class="sys-bar-fill" style="width: ${pct}%;"></div>
-          </div>
+        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end;" title="${hr}: ${count} incidencias">
+          ${count > 0 ? `<span style="font-size: 9px; color: #94a3b8; margin-bottom: 2px;">${count}</span>` : ''}
+          <div style="width: 100%; max-width: 14px; height: ${heightPct}%; background-color: ${bg}; border-radius: 3px 3px 0 0; transition: height 0.3s ease;"></div>
         </div>
       `;
     }).join('');
   }
 
-  // 2. Tabla de Breaches
+  // 4. Barras de volumen por sistema (si existe el contenedor secundario)
+  const container = document.getElementById('system-bars-container');
+  if (container) {
+    const volume = metrics.volume_by_system || {};
+    const entries = Object.entries(volume);
+    const maxVal = Math.max(...entries.map(([, val]) => val), 1);
+
+    if (entries.length === 0) {
+      container.innerHTML = '<div class="text-muted">Aún no hay datos de volumen.</div>';
+    } else {
+      container.innerHTML = entries.map(([sys, count]) => {
+        const pct = Math.round((count / maxVal) * 100);
+        return `
+          <div class="sys-bar-row">
+            <div class="sys-bar-meta">
+              <span><code>${sys.toUpperCase()}</code></span>
+              <span><strong>${count}</strong> casos (${Math.round((count / metrics.total_tickets) * 100 || 0)}%)</span>
+            </div>
+            <div class="sys-bar-track">
+              <div class="sys-bar-fill" style="width: ${pct}%;"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // 5. Tabla de Breaches
   const breachesBody = document.getElementById('sla-breaches-tbody');
   const breaches = metrics.sla_breaches || [];
 
@@ -516,22 +574,138 @@ function displaySimResult(data, isSuccess) {
 }
 
 // ---------------------------------------------------------------------------
-// Modal de Detalle de Ticket
+// Modal de Detalle de Ticket y Seguimiento
 // ---------------------------------------------------------------------------
+let activeModalTicketId = null;
+
 function setupModal() {
   const modal = document.getElementById('ticket-modal');
   const closeBtn = document.getElementById('modal-close');
 
-  closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) modal.classList.add('hidden');
+  closeBtn.addEventListener('click', () => {
+    modal.classList.add('hidden');
+    activeModalTicketId = null;
   });
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.classList.add('hidden');
+      activeModalTicketId = null;
+    }
+  });
+
+  // Listener para agregar nuevo comentario
+  const submitBtn = document.getElementById('btn-submit-comment');
+  if (submitBtn) {
+    submitBtn.addEventListener('click', async () => {
+      if (!activeModalTicketId) return;
+
+      const authorInput = document.getElementById('modal-comment-author');
+      const statusSelect = document.getElementById('modal-comment-status');
+      const commentInput = document.getElementById('modal-comment-text');
+
+      const author = (authorInput ? authorInput.value.trim() : '') || 'Agente Mesa TI';
+      const status = statusSelect && statusSelect.value ? statusSelect.value : null;
+      const text = commentInput ? commentInput.value.trim() : '';
+
+      if (!text) {
+        showToast('Por favor escribe un comentario para guardar.', 'warning');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Enviando...';
+
+      try {
+        const res = await fetch(`/tickets/${activeModalTicketId}/comments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            author: author,
+            comment: text,
+            new_status: status,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || 'Error al guardar comentario');
+        }
+
+        const result = await res.json();
+        commentInput.value = '';
+        showToast('✅ Comentario registrado y notificado a Google Chat', 'success');
+
+        // Actualizar UI del modal
+        document.getElementById('modal-status').textContent = result.new_status.toUpperCase();
+        document.getElementById('modal-status').className = `badge status-${result.new_status}`;
+        renderModalComments(result.comments);
+
+        // Refrescar datos de fondo
+        fetchAllData(true);
+      } catch (err) {
+        showToast(`Error: ${err.message}`, 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>💬</span> Guardar Comentario & Notificar al Chat';
+      }
+    });
+  }
 }
 
-window.openTicketModal = function(ticketId) {
-  const ticket = state.tickets.find(t => t.ticket_id === ticketId);
-  if (!ticket) return;
+function renderModalComments(comments) {
+  const container = document.getElementById('modal-comments-timeline');
+  const countBadge = document.getElementById('modal-comments-count');
+  if (!container) return;
 
+  const list = comments || [];
+  if (countBadge) countBadge.textContent = `${list.length} ${list.length === 1 ? 'nota' : 'notas'}`;
+
+  if (list.length === 0) {
+    container.innerHTML = '<div class="text-muted" style="font-size: 13px;">Sin notas de seguimiento registradas.</div>';
+    return;
+  }
+
+  container.innerHTML = list.map(c => {
+    const timeStr = c.created_at ? formatTime(c.created_at) : '';
+    const statusTag = c.new_status ? `<span class="badge status-${c.new_status}" style="font-size: 10px; margin-left: 6px;">➜ ${c.new_status.toUpperCase()}</span>` : '';
+    return `
+      <div class="comment-item" style="background: rgba(30, 41, 59, 0.7); border-left: 3px solid #3b82f6; border-radius: 6px; padding: 8px 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <div>
+            <strong style="font-size: 12px; color: #f8fafc;">${escapeHtml(c.author)}</strong>
+            ${statusTag}
+          </div>
+          <small class="text-muted" style="font-size: 11px;">${timeStr}</small>
+        </div>
+        <div style="font-size: 13px; color: #cbd5e1; white-space: pre-wrap; line-height: 1.4;">${escapeHtml(c.content)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+window.openTicketModal = async function(ticketId) {
+  activeModalTicketId = ticketId;
+  const cachedTicket = state.tickets.find(t => t.ticket_id === ticketId);
+  if (!cachedTicket) return;
+
+  // Llenar datos inmediatos con caché
+  fillModalFields(cachedTicket);
+
+  document.getElementById('ticket-modal').classList.remove('hidden');
+
+  // Fetch fresco para asegurar los comentarios más recientes
+  try {
+    const res = await fetch(`/tickets/${ticketId}`);
+    if (res.ok) {
+      const freshTicket = await res.json();
+      fillModalFields(freshTicket);
+    }
+  } catch (e) {
+    // Si falla el fetch fresco, nos quedamos con el cached
+  }
+};
+
+function fillModalFields(ticket) {
   document.getElementById('modal-ticket-id').textContent = `TICKET #${ticket.ticket_id.substring(0, 8)}`;
   document.getElementById('modal-ticket-summary').textContent = ticket.summary;
 
@@ -548,9 +722,16 @@ window.openTicketModal = function(ticketId) {
 
   document.getElementById('modal-sla-deadline').textContent = ticket.sla_deadline ? formatFullDate(ticket.sla_deadline) : 'N/A';
   document.getElementById('modal-created-at').textContent = formatFullDate(ticket.created_at);
+  const reqEl = document.getElementById('modal-requester');
+  if (reqEl) {
+    reqEl.textContent = ticket.requester_id || 'users/desconocido';
+  }
   document.getElementById('modal-space').textContent = ticket.space_id || 'spaces/FINTECH_SUPPORT';
   document.getElementById('modal-auto-res').textContent = ticket.resolved_by_auto ? `Sí (${ticket.resolved_by || 'Runbook'})` : 'No';
   document.getElementById('modal-resolved-by').textContent = ticket.resolved_by || 'En progreso';
+
+  // Renderizar comentarios
+  renderModalComments(ticket.comments);
 
   // Mensaje de simulación de Google Chat
   const autoTag = ticket.resolved_by_auto ? ' 🤖 (resuelto automáticamente)' : '';
@@ -562,9 +743,7 @@ window.openTicketModal = function(ticketId) {
 • Resumen: ${ticket.summary}`;
 
   document.getElementById('modal-chat-message').textContent = chatMsg;
-
-  document.getElementById('ticket-modal').classList.remove('hidden');
-};
+}
 
 // ---------------------------------------------------------------------------
 // Acciones Globales

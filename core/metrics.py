@@ -50,6 +50,9 @@ class DashboardMetrics:
     auto_resolution_pct: float           # 0.0 – 100.0
     avg_resolution_min: Optional[float]  # None si no hay tickets resueltos aún
     sla_breaches: list[dict]             # Lista de tickets con SLA vencido
+    mttr_by_severity: dict[str, Optional[float]] = field(default_factory=dict)
+    recurrent_systems: list[dict] = field(default_factory=list)
+    volume_by_hour: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +142,42 @@ def compute_metrics(
                 "summary": ticket.summary[:100],
             })
 
+    # --- MTTR por severidad (minutos) ---
+    mttr_by_severity: dict[str, Optional[float]] = {sev.value: None for sev in Severity}
+    for sev in Severity:
+        sev_resolved = [
+            t for t in resolved_tickets
+            if t.severity == sev and t.resolved_at and t.created_at
+        ]
+        if sev_resolved:
+            durations = [(t.resolved_at - t.created_at).total_seconds() / 60 for t in sev_resolved]
+            mttr_by_severity[sev.value] = round(sum(durations) / len(durations), 1)
+
+    # --- Sistemas recurrentes (ordenados por volumen e impacto P0/P1) ---
+    system_stats = []
+    for tag in SystemTag:
+        sys_tickets = [t for t in all_tickets if t.system == tag]
+        p0_p1 = sum(1 for t in sys_tickets if t.severity in (Severity.P0, Severity.P1))
+        open_c = sum(1 for t in sys_tickets if t.status not in (TicketStatus.RESOLVED, TicketStatus.CLOSED))
+        system_stats.append({
+            "system": tag.value,
+            "total_incidents": len(sys_tickets),
+            "p0_p1_count": p0_p1,
+            "open_count": open_c,
+        })
+    recurrent_systems = sorted(
+        system_stats,
+        key=lambda x: (x["total_incidents"], x["p0_p1_count"]),
+        reverse=True,
+    )
+
+    # --- Volumen por hora (distribución 00:00 a 23:00 UTC) ---
+    volume_by_hour: dict[str, int] = {f"{h:02d}:00": 0 for h in range(24)}
+    for ticket in all_tickets:
+        if ticket.created_at:
+            hour_key = f"{ticket.created_at.hour:02d}:00"
+            volume_by_hour[hour_key] = volume_by_hour.get(hour_key, 0) + 1
+
     return DashboardMetrics(
         computed_at=check_time,
         total_tickets=len(all_tickets),
@@ -148,4 +187,7 @@ def compute_metrics(
         auto_resolution_pct=auto_resolution_pct,
         avg_resolution_min=avg_resolution_min,
         sla_breaches=sla_breaches,
+        mttr_by_severity=mttr_by_severity,
+        recurrent_systems=recurrent_systems,
+        volume_by_hour=volume_by_hour,
     )

@@ -389,24 +389,93 @@
         </div>
       </section>
 
-      <!-- VISTA MÉTRICAS & SLAS -->
+      <!-- VISTA MÉTRICAS & SLAS (TABLERO GERENCIAL MEJORADO) -->
       <section id="tab-metrics" class="tab-pane">
+        <!-- Tarjetas Gerenciales Principales -->
+        <div class="card mb-4" style="margin-bottom: 20px;">
+          <div class="card-header">
+            <h3 class="card-title">⏱️ MTTR (Tiempo Medio de Resolución) por Severidad</h3>
+            <p class="card-subtitle">Métrica clave de observabilidad para evaluar la capacidad de respuesta del equipo de TI</p>
+          </div>
+          <div class="card-body">
+            <div class="mttr-grid" id="mttr-severity-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+              <div class="mttr-card" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px; padding: 16px; text-align: center;">
+                <span class="tag tag-p0" style="font-size: 12px; font-weight: 700;">CRÍTICO P0</span>
+                <div id="mttr-p0" style="font-size: 26px; font-weight: 700; margin: 8px 0; color: #ef4444;">--</div>
+                <div style="font-size: 11px; color: #94a3b8;">Objetivo SLA: &lt; 1 hora</div>
+              </div>
+              <div class="mttr-card" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 16px; text-align: center;">
+                <span class="tag tag-p1" style="font-size: 12px; font-weight: 700;">ALTO P1</span>
+                <div id="mttr-p1" style="font-size: 26px; font-weight: 700; margin: 8px 0; color: #f59e0b;">--</div>
+                <div style="font-size: 11px; color: #94a3b8;">Objetivo SLA: &lt; 4 horas</div>
+              </div>
+              <div class="mttr-card" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 16px; text-align: center;">
+                <span class="tag tag-p2" style="font-size: 12px; font-weight: 700;">MEDIO P2</span>
+                <div id="mttr-p2" style="font-size: 26px; font-weight: 700; margin: 8px 0; color: #3b82f6;">--</div>
+                <div style="font-size: 11px; color: #94a3b8;">Objetivo SLA: &lt; 24 horas</div>
+              </div>
+              <div class="mttr-card" style="background: rgba(148, 163, 184, 0.08); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 8px; padding: 16px; text-align: center;">
+                <span class="tag tag-p3" style="font-size: 12px; font-weight: 700;">BAJO P3</span>
+                <div id="mttr-p3" style="font-size: 26px; font-weight: 700; margin: 8px 0; color: #94a3b8;">--</div>
+                <div style="font-size: 11px; color: #94a3b8;">Objetivo SLA: &lt; 72 horas</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="metrics-dashboard-grid">
           <!-- Gráfico / Distribución por Sistema -->
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">📊 Distribución de Incidentes por Sistema</h3>
-              <p class="card-subtitle">Volumen histórico acumulado por componente de la fintech</p>
+              <h3 class="card-title">📊 Sistemas con Incidentes Recurrentes</h3>
+              <p class="card-subtitle">Ranking ordenado por volumen total e impacto crítico (P0/P1)</p>
             </div>
             <div class="card-body">
-              <div id="system-bars-container" class="system-bars-container">
-                <div class="text-muted">Cargando distribución...</div>
+              <div class="table-container">
+                <table class="simple-table" id="recurrent-systems-table">
+                  <thead>
+                    <tr>
+                      <th>Sistema</th>
+                      <th>Total Casos</th>
+                      <th>Críticos (P0/P1)</th>
+                      <th>Abiertos</th>
+                      <th>Nivel de Riesgo</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recurrent-systems-tbody">
+                    <tr>
+                      <td colspan="5" class="text-center text-muted">Cargando análisis de recurrencia...</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
 
-          <!-- Tabla de Incumplimientos de SLA -->
+          <!-- Picos de Volumen por Hora -->
           <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">📈 Picos de Volumen por Hora (24 Horas)</h3>
+              <p class="card-subtitle">Distribución temporal para dimensionamiento de turnos de soporte</p>
+            </div>
+            <div class="card-body">
+              <div id="hourly-bars-container" style="display: flex; align-items: flex-end; height: 160px; gap: 4px; padding-top: 20px; border-bottom: 1px solid #334155;">
+                <div class="text-muted">Cargando distribución horaria...</div>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-top: 6px;">
+                <span>00:00 UTC</span>
+                <span>06:00</span>
+                <span>12:00</span>
+                <span>18:00</span>
+                <span>23:00 UTC</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="metrics-dashboard-grid" style="margin-top: 20px;">
+          <!-- Tabla de Incumplimientos de SLA -->
+          <div class="card" style="grid-column: 1 / -1;">
             <div class="card-header">
               <h3 class="card-title">⚠️ Detalle de Incumplimientos de SLA</h3>
               <p class="card-subtitle">Casos que superaron el tiempo máximo permitido según severidad</p>
@@ -494,13 +563,57 @@
           <h4>Detalle y Diagnóstico</h4>
           <div class="detail-row"><span>SLA Deadline:</span> <strong id="modal-sla-deadline">--</strong></div>
           <div class="detail-row"><span>Fecha Creación:</span> <span id="modal-created-at">--</span></div>
+          <div class="detail-row"><span>Solicitante Original:</span> <code id="modal-requester" class="tag tag-human">users/--</code></div>
           <div class="detail-row"><span>Espacio Google Chat:</span> <code id="modal-space">--</code></div>
           <div class="detail-row"><span>Resuelto Automáticamente:</span> <strong id="modal-auto-res">No</strong></div>
           <div class="detail-row"><span>Cerrado Por:</span> <span id="modal-resolved-by">--</span></div>
         </div>
 
+        <!-- SECCIÓN DE COMENTARIOS Y SEGUIMIENTO TIPO BITRIX24 -->
         <div class="modal-section">
-          <h4>Notificación enviada a Google Chat</h4>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4>💬 Seguimiento & Notificaciones al Usuario</h4>
+            <span class="badge" id="modal-comments-count">0 notas</span>
+          </div>
+
+          <!-- Historial de comentarios (Timeline) -->
+          <div id="modal-comments-timeline" class="comments-timeline" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; padding: 4px;">
+            <div class="text-muted" style="font-size: 13px;">Sin notas de seguimiento registradas.</div>
+          </div>
+
+          <!-- Formulario para agregar comentario -->
+          <div class="comment-composer-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+              <div>
+                <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Agente / Autor:</label>
+                <input type="text" id="modal-comment-author" class="form-control" value="Agente Mesa TI" style="font-size: 13px; padding: 6px 10px;">
+              </div>
+              <div>
+                <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Transición de Estado:</label>
+                <select id="modal-comment-status" class="form-control" style="font-size: 13px; padding: 6px 10px;">
+                  <option value="">Mantener estado actual</option>
+                  <option value="in_progress">En Progreso (IN_PROGRESS)</option>
+                  <option value="waiting_user">Esperando Usuario (WAITING_USER)</option>
+                  <option value="resolved">Resuelto (RESOLVED)</option>
+                  <option value="closed">Cerrado (CLOSED)</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 10px;">
+              <textarea id="modal-comment-text" class="form-control" rows="3" placeholder="Escribe el avance o requerimiento para el usuario (se mencionará automáticamente en Google Chat)..." style="font-size: 13px; resize: vertical;"></textarea>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end;">
+              <button id="btn-submit-comment" class="btn btn-primary btn-sm" style="display: flex; align-items: center; gap: 6px;">
+                <span>💬</span> Guardar Comentario & Notificar al Chat
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <h4>Último Mensaje Enviado al Chat</h4>
           <div class="chat-preview-bubble">
             <div class="chat-bubble-header">
               <span class="chat-bot-avatar">🤖</span>

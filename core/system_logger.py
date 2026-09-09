@@ -8,8 +8,7 @@ Registra eventos en:
   3. Buffer en memoria para consulta en tiempo real desde la API y el Frontend.
 """
 
-from __future__ import annotations
-
+import logging
 from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,20 +17,39 @@ from typing import Any
 LOG_FILE_PATH = Path("support_system.log")
 MAX_BUFFER_SIZE = 200
 
-# Buffer circular en memoria
+# Buffer circular en memoria para consumo del dashboard/frontend
 _LOG_BUFFER: deque[dict[str, Any]] = deque(maxlen=MAX_BUFFER_SIZE)
+
+# Configuración del Logger nativo de Python
+_logger = logging.getLogger("fintech.support")
+_logger.setLevel(logging.INFO)
+
+# Evitar duplicación de handlers si se recarga el módulo
+if not _logger.handlers:
+    _formatter = logging.Formatter(
+        "[%(asctime)s UTC] %(levelname)s [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    # File Handler
+    try:
+        _file_handler = logging.FileHandler(LOG_FILE_PATH, encoding="utf-8")
+        _file_handler.setFormatter(_formatter)
+        _logger.addHandler(_file_handler)
+    except Exception:
+        pass
+
+    # Console Handler
+    _console_handler = logging.StreamHandler()
+    _console_handler.setFormatter(_formatter)
+    _logger.addHandler(_console_handler)
 
 
 def log_event(level: str, category: str, message: str, details: Any = None) -> None:
     """
-    Registra un evento estructurado.
+    Registra un evento estructurado en el canal interno del backend.
     
-    Parámetros
-    ----------
-    level    : INFO | SUCCESS | WARNING | ERROR
-    category : WEBHOOK | INGESTION | CLASSIFIER | TICKET | RUNBOOK | CHAT_API | SLA
-    message  : Mensaje descriptivo
-    details  : Diccionario o string con información técnica complementaria
+    Aisla estrictamente los detalles técnicos y trazas para que nunca
+    se expongan en respuestas directas hacia Google Chat o el usuario final.
     """
     now = datetime.now(UTC)
     entry = {
@@ -53,19 +71,18 @@ def log_event(level: str, category: str, message: str, details: Any = None) -> N
         "ERROR": "❌",
     }
     emo = emoji_map.get(level.upper(), "📝")
-    line = f"[{entry['time_str']} UTC] {emo} [{category.upper()}] {message}"
+    log_text = f"{emo} [{category.upper()}] {message}"
     if details:
-        line += f" | {details}"
+        log_text += f" | {details}"
 
-    # 1. Stdout
-    print(line, flush=True)
-
-    # 2. Archivo local
-    try:
-        with open(LOG_FILE_PATH, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception:
-        pass
+    # Loguear con nivel adecuado en logger nativo
+    lvl = level.upper()
+    if lvl == "ERROR":
+        _logger.error(log_text)
+    elif lvl == "WARNING":
+        _logger.warning(log_text)
+    else:
+        _logger.info(log_text)
 
 
 def get_recent_logs(limit: int = 100) -> list[dict[str, Any]]:

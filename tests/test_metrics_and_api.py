@@ -172,6 +172,49 @@ class TestComputeMetrics:
         assert metrics.total_tickets == 3
         assert metrics.total_open == 2
 
+    def test_mttr_by_severity(self, empty_repo: InMemoryTicketRepository) -> None:
+        t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+        # P0 resuelto en 30 min
+        empty_repo.save(_make_ticket(
+            severity=Severity.P0,
+            status=TicketStatus.RESOLVED,
+            created_at=t0,
+            resolved_at=t0 + timedelta(minutes=30),
+        ))
+        # P1 resuelto en 120 min
+        empty_repo.save(_make_ticket(
+            severity=Severity.P1,
+            status=TicketStatus.RESOLVED,
+            created_at=t0,
+            resolved_at=t0 + timedelta(minutes=120),
+        ))
+        metrics = compute_metrics(empty_repo)
+        assert metrics.mttr_by_severity["P0"] == 30.0
+        assert metrics.mttr_by_severity["P1"] == 120.0
+        assert metrics.mttr_by_severity["P2"] is None
+
+    def test_recurrent_systems(self, empty_repo: InMemoryTicketRepository) -> None:
+        empty_repo.save(_make_ticket(system=SystemTag.PAYMENTS, severity=Severity.P0))
+        empty_repo.save(_make_ticket(system=SystemTag.PAYMENTS, severity=Severity.P1))
+        empty_repo.save(_make_ticket(system=SystemTag.AUTH, severity=Severity.P2))
+
+        metrics = compute_metrics(empty_repo)
+        assert len(metrics.recurrent_systems) > 0
+        # PAYMENTS tiene 2 tickets, debe ser el primero
+        assert metrics.recurrent_systems[0]["system"] == "payments"
+        assert metrics.recurrent_systems[0]["total_incidents"] == 2
+        assert metrics.recurrent_systems[0]["p0_p1_count"] == 2
+
+    def test_volume_by_hour(self, empty_repo: InMemoryTicketRepository) -> None:
+        t1 = datetime(2026, 9, 8, 14, 25, 0, tzinfo=UTC)
+        t2 = datetime(2026, 9, 8, 14, 50, 0, tzinfo=UTC)
+        empty_repo.save(_make_ticket(created_at=t1))
+        empty_repo.save(_make_ticket(created_at=t2))
+
+        metrics = compute_metrics(empty_repo)
+        assert metrics.volume_by_hour["14:00"] == 2
+        assert metrics.volume_by_hour["09:00"] == 0
+
 
 # ============================================================
 # test_api.py — Tests de integración FastAPI
@@ -419,6 +462,43 @@ class TestTicketsEndpoint:
     def test_tickets_returns_list(self, client: TestClient) -> None:
         resp = client.get("/tickets")
         assert isinstance(resp.json(), list)
+
+    def test_add_comment_and_get_ticket(self, client: TestClient) -> None:
+        # 1. Crear un ticket vía webhook
+        wh_payload = {
+            "type": "MESSAGE",
+            "message": {
+                "name": "spaces/TEST/messages/msg-comment-test",
+                "text": "Error en login de usuarios comerciales",
+                "sender": {"name": "users/user-123", "displayName": "Carlos", "type": "HUMAN"},
+                "space": {"name": "spaces/TEST"},
+            },
+        }
+        wh_resp = client.post("/webhook/google-chat", json=wh_payload)
+        assert wh_resp.status_code == 200
+        ticket_id = wh_resp.json()["ticket_id"]
+
+        # 2. Agregar comentario transicionando a waiting_user
+        cmt_payload = {
+            "author": "Agente Soporte",
+            "comment": "Solicitamos capturas de pantalla del error",
+            "new_status": "waiting_user",
+        }
+        cmt_resp = client.post(f"/tickets/{ticket_id}/comments", json=cmt_payload)
+        assert cmt_resp.status_code == 200
+        cmt_data = cmt_resp.json()
+        assert cmt_data["status"] == "ok"
+        assert cmt_data["new_status"] == "waiting_user"
+        assert cmt_data["comments_count"] >= 1
+        assert cmt_data["comments"][0]["author"] == "Agente Soporte"
+
+        # 3. Consultar detalle del ticket
+        detail_resp = client.get(f"/tickets/{ticket_id}")
+        assert detail_resp.status_code == 200
+        detail_data = detail_resp.json()
+        assert detail_data["ticket_id"] == ticket_id
+        assert detail_data["status"] == "waiting_user"
+        assert len(detail_data["comments"]) >= 1
 
 
 class TestFrontendEndpoint:
